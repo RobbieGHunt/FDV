@@ -2,6 +2,11 @@
 node_modules/
 package-lock.json
 
+# Local Agent Workspace Customizations
+.agents/
+.agent/
+_agents/
+
 # Build & Release Artifacts (Binary distributions belong in GitHub Releases)
 dist/
 release/
