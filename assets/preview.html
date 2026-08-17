@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>FDV App Icon Preview (Bold / High-Visibility)</title>
+  <style>
+    body {
+      background-color: #0b0c10;
+      color: #e1e4e8;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+    }
+    .card {
+      background: #181a20;
+      border: 1px solid #2e323e;
+      border-radius: 20px;
+      padding: 30px;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      max-width: 550px;
+    }
+    img.main {
+      width: 320px;
+      height: 320px;
+      border-radius: 65px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      margin: 20px 0;
+    }
+    .taskbar-sim {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background: #111317;
+      padding: 15px;
+      border-radius: 12px;
+      border: 1px solid #242731;
+      margin-top: 15px;
+    }
+    .taskbar-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: #8b949e;
+      font-family: monospace;
+    }
+    .taskbar-item img {
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    h1 {
+      margin: 0 0 10px 0;
+      font-size: 24px;
+      color: #ffffff;
+    }
+    p {
+      color: #8b949e;
+      font-size: 14px;
+      line-height: 1.6;
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>FDV App Icon (Bold / High-Visibility)</h1>
+    <p>Expanded across the squircle, thick line weights, colored ring apex nodes, and text-free for taskbar clarity.</p>
+    
+    <img src="icon_preview.png" alt="FDV Icon Preview" class="main">
+    
+    <div style="font-size: 12px; color: #00adb5; font-weight: 600; margin-top: 10px;">
+      Simulated Taskbar & Titlebar Scale:
+    </div>
+
+    <div class="taskbar-sim">
+      <div class="taskbar-item">
+        <img src="icon_preview.png" width="48" height="48" style="border-radius: 10px;">
+        <span>48x48 (Window)</span>
+      </div>
+      <div class="taskbar-item">
+        <img src="icon_preview.png" width="32" height="32" style="border-radius: 7px;">
+        <span>32x32 (Taskbar)</span>
+      </div>
+      <div class="taskbar-item">
+        <img src="icon_preview.png" width="24" height="24" style="border-radius: 5px;">
+        <span>24x24 (Titlebar)</span>
+      </div>
+      <div class="taskbar-item">
+        <img src="icon_preview.png" width="16" height="16" style="border-radius: 4px;">
+        <span>16x16 (Tray)</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

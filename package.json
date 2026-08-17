@@ -1,0 +1,65 @@
+{
+  "name": "fdv",
+  "version": "0.1.0",
+  "description": "Flexible Data Viewer - Standalone Desktop Application",
+  "main": "electron/main.js",
+  "author": "Robbie G. Hunt",
+  "homepage": "https://github.com/RobbieGHunt/FDV",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RobbieGHunt/FDV.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "app": "tsc && vite build && electron .",
+    "dev:app": "vite build --watch & electron .",
+    "build": "tsc && vite build",
+    "build:exe": "tsc && vite build && electron-builder --win portable -c.win.signAndEditExecutable=false",
+    "build:dir": "tsc && vite build && electron-builder --win --dir -c.win.signAndEditExecutable=false"
+  },
+  "build": {
+    "appId": "com.fdv.flexibledataviewer",
+    "productName": "Flexible Data Viewer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "${productName}.exe"
+    }
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "papaparse": "^5.5.2",
+    "plotly.js-dist-min": "^3.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-plotly.js": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.4",
+    "@types/papaparse": "^5.3.15",
+    "@types/plotly.js": "^2.33.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.2",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
