@@ -9,13 +9,14 @@ export const BUILTIN_TEMPLATES: PlotTemplate[] = [
     id: 'template_xrr',
     name: 'X-Ray Reflectivity (XRR)',
     description: 'Logarithmic Y-scale for reflectivity decay across orders of magnitude with Q momentum transfer vector.',
-    plotPreset: 'log_y',
+    plotPreset: 'line',
     plotSettings: {
       title: 'X-Ray Reflectivity (XRR) Profile',
       xAxisTitle: 'Q (1/Å) or 2-Theta (deg)',
       yAxisTitle: 'Reflectivity R(Q) [Log Scale]',
       showLegend: true,
       fontSize: 12,
+      isLogY: true,
     },
     defaultTransforms: [],
     customScript: `"""

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Dataset, PlotPresetId, ThemeMode, PlotSettings } from '../types';
 import { applyTransforms, detectPeaks } from '../core/transforms';
+import { COLOR_CYCLE } from './panels/AxesPanel';
 
 interface PlotCanvasProps {
   datasets: Dataset[];
@@ -26,6 +27,29 @@ interface PlotCanvasProps {
   theme: ThemeMode;
   plotSettings: PlotSettings;
   onOpenFiles: () => void;
+  onLoadSample?: (sampleType: 'csv' | 'spectra' | 'xrr' | 'polar') => void;
+}
+
+function hexOrRgbToRgba(color: string, opacity: number): string {
+  if (!color) return `rgba(2, 132, 199, ${opacity})`;
+  if (color.startsWith('#')) {
+    let c = color.substring(1);
+    if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+    if (c.length === 6) {
+      const num = parseInt(c, 16);
+      const r = (num >> 16) & 255;
+      const g = (num >> 8) & 255;
+      const b = num & 255;
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    }
+  }
+  if (color.startsWith('rgb(')) {
+    return color.replace('rgb(', 'rgba(').replace(')', `, ${opacity})`);
+  }
+  if (color.startsWith('rgba(')) {
+    return color.replace(/,\s*[\d.]+\)$/, `, ${opacity})`);
+  }
+  return color;
 }
 
 export const PlotCanvas: React.FC<PlotCanvasProps> = ({
@@ -37,6 +61,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
   theme,
   plotSettings,
   onOpenFiles,
+  onLoadSample,
 }) => {
   // Interaction & tool toggles: Pan, Box Zoom, or Point Selection Cursor
   const [interactionMode, setInteractionMode] = useState<'pan' | 'zoom' | 'select'>('pan');
@@ -63,7 +88,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
   const visibleDatasets = useMemo(() => datasets.filter((d) => d.isVisible), [datasets]);
 
-  // Construct processed Plotly traces with active transforms
+  // Construct processed Plotly traces with active transforms and error bars / bands
   const { plotData, defaultXRange, defaultYRange, allPeaks } = useMemo(() => {
     const traces: any[] = [];
     let minX = Infinity;
@@ -72,10 +97,10 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
     let maxY = -Infinity;
     const detectedPeakList: { x: number; y: number; datasetName: string }[] = [];
 
-    visibleDatasets.forEach((ds) => {
+    visibleDatasets.forEach((ds, dsIdx) => {
       const rawX = ds.data[ds.selectedX] || [];
 
-      ds.selectedY.forEach((yCol) => {
+      ds.selectedY.forEach((yCol, yIdx) => {
         const rawY = ds.data[yCol] || [];
         const { x: xVals, y: baseTransformedY } = applyTransforms(
           rawX,
@@ -88,22 +113,99 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
           typeof y === 'number' ? y * ds.yMultiplier + ds.yOffset : y
         );
 
+        // Error series resolution for this specific curve
+        const yErrCol = ds.yErrorMap?.[yCol]?.yErrCol ?? ds.yErrorColumn;
+        const xErrCol = ds.yErrorMap?.[yCol]?.xErrCol ?? ds.xErrorColumn;
+
+        let yErrVals: number[] | null = null;
+        let xErrVals: number[] | null = null;
+
+        if (yErrCol && ds.data[yErrCol]) {
+          const rawYErr = ds.data[yErrCol];
+          yErrVals = rawYErr.map((v) => {
+            const num = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+            return !isNaN(num) && isFinite(num) ? Math.abs(num * ds.yMultiplier) : 0;
+          });
+        }
+
+        if (xErrCol && ds.data[xErrCol]) {
+          const rawXErr = ds.data[xErrCol];
+          xErrVals = rawXErr.map((v) => {
+            const num = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+            return !isNaN(num) && isFinite(num) ? Math.abs(num) : 0;
+          });
+        }
+
+        const hasYErr = yErrVals && yErrVals.some((v) => v > 0);
+        const hasXErr = xErrVals && xErrVals.some((v) => v > 0);
+        const isBand = ds.errorDisplayStyle === 'band' && hasYErr;
+
+        // Resolve curve-specific styles and color
+        const sStyle = ds.seriesStyles?.[yCol] || {};
+        const curveColor =
+          sStyle.color || COLOR_CYCLE[(dsIdx * 3 + yIdx) % COLOR_CYCLE.length] || ds.color;
+        const curveDash = sStyle.lineDash || ds.lineDash || 'solid';
+        const curveWidth = sStyle.lineWidth || ds.lineWidth || 2;
+        const curveMarkerSymbol = sStyle.markerSymbol || ds.markerSymbol || 'circle';
+        const curveMarkerSize = sStyle.markerSize || ds.markerSize || 6;
+        const curvePlotStyle = sStyle.plotStyle || ds.plotStyle || 'lines';
+        const curveOpacity = sStyle.opacity ?? ds.opacity ?? 1.0;
+
+        // Robust Error Bar & Band Color: Must inherit this curve's exact line color (unless overridden by custom)
+        const errorColor = ds.errorCustomColor || curveColor;
+
         // Track bounding extents
         xVals.forEach((x, i) => {
           if (typeof x === 'number' && !isNaN(x)) {
-            if (x < minX) minX = x;
-            if (x > maxX) maxX = x;
+            const xErr = hasXErr && xErrVals ? xErrVals[i] || 0 : 0;
+            if (x - xErr < minX) minX = x - xErr;
+            if (x + xErr > maxX) maxX = x + xErr;
           }
           const y = yVals[i];
           if (typeof y === 'number' && !isNaN(y)) {
-            if (y < minY) minY = y;
-            if (y > maxY) maxY = y;
+            const yErr = hasYErr && yErrVals ? yErrVals[i] || 0 : 0;
+            if (y - yErr < minY) minY = y - yErr;
+            if (y + yErr > maxY) maxY = y + yErr;
           }
         });
 
+        // If continuous shaded error band mode is selected:
+        if (isBand && yErrVals) {
+          const yUpper = yVals.map((y, i) => (typeof y === 'number' ? y + (yErrVals![i] || 0) : y));
+          const yLower = yVals.map((y, i) => (typeof y === 'number' ? y - (yErrVals![i] || 0) : y));
+
+          const bandAlpha = ds.errorBandOpacity ?? 0.20;
+          const bandFillColor = hexOrRgbToRgba(errorColor, bandAlpha);
+
+          // 1. Invisible upper envelope boundary
+          traces.push({
+            x: xVals,
+            y: yUpper,
+            type: 'scatter',
+            mode: 'lines',
+            line: { width: 0, color: 'transparent' },
+            showlegend: false,
+            hoverinfo: 'skip',
+          });
+
+          // 2. Lower envelope boundary filling to upper envelope ('tonexty')
+          traces.push({
+            x: xVals,
+            y: yLower,
+            type: 'scatter',
+            mode: 'lines',
+            line: { width: 0, color: 'transparent' },
+            fill: 'tonexty',
+            fillcolor: bandFillColor,
+            name: `${ds.name} - ${yCol} (Uncertainty Band)`,
+            showlegend: false,
+            hoverinfo: 'skip',
+          });
+        }
+
         // Run peak finding if toggled
-        if (showPeaks && xVals.length > 5) {
-          const peaks = detectPeaks(xVals, yVals, 15, 0.05);
+        if (showPeaks && xVals.length > 3) {
+          const peaks = detectPeaks(xVals, yVals, 0.05, 5);
           peaks.forEach((pk) => {
             detectedPeakList.push({
               x: pk.x,
@@ -115,45 +217,101 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
         // Trace styles based on plotStyle and presets
         let mode: 'lines' | 'markers' | 'lines+markers' = 'lines';
-        if (activePreset === 'scatter' || ds.plotStyle === 'markers') {
+        if (activePreset === 'scatter' || curvePlotStyle === 'markers') {
           mode = 'markers';
-        } else if (activePreset === 'line_scatter' || ds.plotStyle === 'lines+markers') {
+        } else if (activePreset === 'line_scatter' || curvePlotStyle === 'lines+markers') {
           mode = 'lines+markers';
-        } else if (ds.plotStyle === 'lines') {
+        } else if (curvePlotStyle === 'lines') {
           mode = 'lines';
         }
 
-        const trace: any = {
-          x: xVals,
-          y: yVals,
-          name: `${ds.name} - ${yCol}`,
-          type: 'scatter',
-          mode: mode,
-          line: {
-            color: ds.color,
-            width: ds.lineWidth,
-            dash: ds.lineDash || 'solid',
-          },
-          marker: {
-            color: ds.color,
-            size: ds.markerSize || 6,
-            symbol: ds.markerSymbol || 'circle',
-          },
-          fill:
-            activePreset === 'area' || ds.plotStyle === 'area'
-              ? 'tozeroy'
-              : undefined,
-          fillcolor:
-            activePreset === 'area' || ds.plotStyle === 'area'
-              ? `${ds.color}25`
-              : undefined,
-          opacity: ds.opacity,
-          hoverlabel: {
-            bgcolor: isDark ? '#1a1c22' : '#ffffff',
-            bordercolor: ds.color,
-            font: { family: 'JetBrains Mono', size: 12, color: isDark ? '#ffffff' : '#000000' },
-          },
-        };
+        const isPolar = activePreset === 'polar';
+
+        const trace: any = isPolar
+          ? {
+              type: 'scatterpolar',
+              r: yVals,
+              theta: xVals,
+              thetaunit: plotSettings.polarThetaUnit || 'degrees',
+              name: `${ds.name} - ${yCol}`,
+              mode: mode,
+              line: {
+                color: curveColor,
+                width: curveWidth,
+                dash: curveDash,
+              },
+              marker: {
+                color: curveColor,
+                size: curveMarkerSize,
+                symbol: curveMarkerSymbol,
+              },
+              fill: curvePlotStyle === 'area' ? 'toself' : undefined,
+              fillcolor:
+                curvePlotStyle === 'area'
+                  ? `${curveColor}25`
+                  : undefined,
+              opacity: curveOpacity,
+              hoverlabel: {
+                bgcolor: isDark ? '#1a1c22' : '#ffffff',
+                bordercolor: curveColor,
+                font: { family: 'JetBrains Mono', size: 12, color: isDark ? '#ffffff' : '#000000' },
+              },
+            }
+          : {
+              x: xVals,
+              y: yVals,
+              name: `${ds.name} - ${yCol}`,
+              type: 'scatter',
+              mode: mode,
+              line: {
+                color: curveColor,
+                width: curveWidth,
+                dash: curveDash,
+              },
+              marker: {
+                color: curveColor,
+                size: curveMarkerSize,
+                symbol: curveMarkerSymbol,
+              },
+              fill:
+                activePreset === 'area' || curvePlotStyle === 'area'
+                  ? 'tozeroy'
+                  : undefined,
+              fillcolor:
+                activePreset === 'area' || curvePlotStyle === 'area'
+                  ? `${curveColor}25`
+                  : undefined,
+              opacity: curveOpacity,
+              hoverlabel: {
+                bgcolor: isDark ? '#1a1c22' : '#ffffff',
+                bordercolor: curveColor,
+                font: { family: 'JetBrains Mono', size: 12, color: isDark ? '#ffffff' : '#000000' },
+              },
+            };
+
+        // Standard Error Bars (Whiskers) - Robust inheritance from active curveColor
+        if (!isBand && !isPolar) {
+          if (hasYErr && yErrVals) {
+            trace.error_y = {
+              type: 'data',
+              array: yErrVals,
+              visible: true,
+              width: ds.errorCapSize ?? 4,
+              thickness: ds.errorThickness ?? 1.5,
+              color: errorColor,
+            };
+          }
+          if (hasXErr && xErrVals) {
+            trace.error_x = {
+              type: 'data',
+              array: xErrVals,
+              visible: true,
+              width: ds.errorCapSize ?? 4,
+              thickness: ds.errorThickness ?? 1.5,
+              color: errorColor,
+            };
+          }
+        }
 
         traces.push(trace);
       });
@@ -161,22 +319,41 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
     // Add peak annotations trace
     if (showPeaks && detectedPeakList.length > 0) {
-      traces.push({
-        x: detectedPeakList.map((p) => p.x),
-        y: detectedPeakList.map((p) => p.y),
-        mode: 'markers+text',
-        type: 'scatter',
-        name: 'Peaks Detected',
-        text: detectedPeakList.map((p) => ` ${p.y.toFixed(2)}`),
-        textposition: 'top center',
-        textfont: { family: 'JetBrains Mono', size: 10, color: '#ea580c' },
-        marker: {
-          symbol: 'triangle-down',
-          size: 11,
-          color: '#ea580c',
-        },
-        hoverinfo: 'text',
-      });
+      if (activePreset === 'polar') {
+        traces.push({
+          r: detectedPeakList.map((p) => p.y),
+          theta: detectedPeakList.map((p) => p.x),
+          mode: 'markers+text',
+          type: 'scatterpolar',
+          name: 'Peaks Detected',
+          text: detectedPeakList.map((p) => ` ${p.y.toFixed(2)}`),
+          textposition: 'top center',
+          textfont: { family: 'JetBrains Mono', size: 10, color: '#ea580c' },
+          marker: {
+            symbol: 'triangle-down',
+            size: 11,
+            color: '#ea580c',
+          },
+          hoverinfo: 'text',
+        });
+      } else {
+        traces.push({
+          x: detectedPeakList.map((p) => p.x),
+          y: detectedPeakList.map((p) => p.y),
+          mode: 'markers+text',
+          type: 'scatter',
+          name: 'Peaks Detected',
+          text: detectedPeakList.map((p) => ` ${p.y.toFixed(2)}`),
+          textposition: 'top center',
+          textfont: { family: 'JetBrains Mono', size: 10, color: '#ea580c' },
+          marker: {
+            symbol: 'triangle-down',
+            size: 11,
+            color: '#ea580c',
+          },
+          hoverinfo: 'text',
+        });
+      }
     }
 
     // Add Data Selection Cursor Marker (Only when Selection Tool is active)
@@ -187,32 +364,61 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
         activeDs.selectedY.forEach((yCol) => {
           const selY = activeDs.data[yCol]?.[selectedPointIndex];
           if (typeof selX === 'number' && typeof selY === 'number') {
-            traces.push({
-              x: [selX],
-              y: [selY + activeDs.yOffset],
-              mode: 'markers+text',
-              type: 'scatter',
-              name: 'Data Selection Cursor',
-              text: [`Row #${selectedPointIndex + 1}`],
-              textposition: 'top center',
-              textfont: {
-                family: 'JetBrains Mono',
-                size: 11,
-                color: isDark ? '#ffeb3b' : '#b45309',
-              },
-              marker: {
-                symbol: 'circle-open',
-                size: 16,
-                color: '#ff9800',
-                line: {
-                  width: 3.5,
-                  color: isDark ? '#ffeb3b' : '#d97706',
+            if (activePreset === 'polar') {
+              traces.push({
+                r: [selY + activeDs.yOffset],
+                theta: [selX],
+                mode: 'markers+text',
+                type: 'scatterpolar',
+                name: 'Data Selection Cursor',
+                text: [`Row #${selectedPointIndex + 1}`],
+                textposition: 'top center',
+                textfont: {
+                  family: 'JetBrains Mono',
+                  size: 11,
+                  color: isDark ? '#ffeb3b' : '#b45309',
                 },
-              },
-              hoverinfo: 'text',
-              hovertext: `Selected Row #${selectedPointIndex + 1}: X=${selX}, Y=${selY}`,
-              showlegend: false,
-            });
+                marker: {
+                  symbol: 'circle-open',
+                  size: 16,
+                  color: '#ff9800',
+                  line: {
+                    width: 3.5,
+                    color: isDark ? '#ffeb3b' : '#d97706',
+                  },
+                },
+                hoverinfo: 'text',
+                hovertext: `Selected Row #${selectedPointIndex + 1}: θ=${selX}, r=${selY}`,
+                showlegend: false,
+              });
+            } else {
+              traces.push({
+                x: [selX],
+                y: [selY + activeDs.yOffset],
+                mode: 'markers+text',
+                type: 'scatter',
+                name: 'Data Selection Cursor',
+                text: [`Row #${selectedPointIndex + 1}`],
+                textposition: 'top center',
+                textfont: {
+                  family: 'JetBrains Mono',
+                  size: 11,
+                  color: isDark ? '#ffeb3b' : '#b45309',
+                },
+                marker: {
+                  symbol: 'circle-open',
+                  size: 16,
+                  color: '#ff9800',
+                  line: {
+                    width: 3.5,
+                    color: isDark ? '#ffeb3b' : '#d97706',
+                  },
+                },
+                hoverinfo: 'text',
+                hovertext: `Selected Row #${selectedPointIndex + 1}: X=${selX}, Y=${selY}`,
+                showlegend: false,
+              });
+            }
           }
         });
       }
@@ -224,7 +430,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
       defaultYRange: minY !== Infinity ? [minY, maxY] : undefined,
       allPeaks: detectedPeakList,
     };
-  }, [visibleDatasets, activeDatasetId, selectedPointIndex, interactionMode, activePreset, showPeaks, isDark]);
+  }, [visibleDatasets, activeDatasetId, selectedPointIndex, interactionMode, activePreset, showPeaks, isDark, plotSettings]);
 
   const effectiveVLineX = vLineX ?? (defaultXRange ? (defaultXRange[0] + defaultXRange[1]) / 2 : 0);
   const effectiveHLineY = hLineY ?? (defaultYRange ? (defaultYRange[0] + defaultYRange[1]) / 2 : 0);
@@ -299,17 +505,16 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
     plotRect: { left: number; top: number; width: number; height: number } | null;
   }>({ pxX: null, pxY: null, plotRect: null });
 
-  // Update line pixels on resize/redraw
+  // Update line pixels synchronously on redraw / data / toggle changes
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setLinePixels(getLinePixelPositions());
-    }, 50);
-    return () => clearTimeout(timer);
+    setLinePixels(getLinePixelPositions());
   }, [getLinePixelPositions, visibleDatasets, showVLine, showHLine]);
 
-  // Window mouse move / up listeners for reference line dragging
+  // Window mouse move / up listeners for instantaneous real-time reference line dragging
   useEffect(() => {
     const handleWindowMouseMove = (e: MouseEvent) => {
+      if (!isDraggingVLine && !isDraggingHLine) return;
+
       const plotDiv: any = plotContainerRef.current?.querySelector('.js-plotly-plot');
       if (!plotDiv || !plotDiv._fullLayout) return;
       const xaxis = plotDiv._fullLayout.xaxis;
@@ -324,12 +529,30 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
         const clampedX = Math.max(0, Math.min(xaxis._length, clientX));
         const newXVal = xaxis.p2c(clampedX);
         setVLineX(newXVal);
+        setLinePixels((prev) => ({
+          ...prev,
+          pxX: xaxis._offset + clampedX,
+        }));
+        if (coordHudRef.current) {
+          coordHudRef.current.innerHTML = `<span>Moving V-Line: <strong class="text-[#00adb5]">X = ${newXVal.toFixed(
+            4
+          )}</strong></span>`;
+        }
       }
 
       if (isDraggingHLine) {
         const clampedY = Math.max(0, Math.min(yaxis._length, clientY));
         const newYVal = yaxis.p2c(clampedY);
         setHLineY(newYVal);
+        setLinePixels((prev) => ({
+          ...prev,
+          pxY: yaxis._offset + clampedY,
+        }));
+        if (coordHudRef.current) {
+          coordHudRef.current.innerHTML = `<span>Moving H-Line: <strong class="text-[#ff9800]">Y = ${newYVal.toFixed(
+            4
+          )}</strong></span>`;
+        }
       }
     };
 
@@ -350,9 +573,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
   }, [isDraggingVLine, isDraggingHLine]);
 
   const handleRelayout = () => {
-    setTimeout(() => {
-      setLinePixels(getLinePixelPositions());
-    }, 20);
+    setLinePixels(getLinePixelPositions());
   };
 
   const handleResetPlot = () => {
@@ -365,9 +586,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
         'yaxis.autorange': true,
       });
     }
-    setTimeout(() => {
-      setLinePixels(getLinePixelPositions());
-    }, 50);
+    setLinePixels(getLinePixelPositions());
   };
 
   const primaryXTitle = plotSettings.xAxisTitle || visibleDatasets[0]?.selectedX || 'X-Axis';
@@ -375,8 +594,8 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
     plotSettings.yAxisTitle || visibleDatasets[0]?.selectedY?.join(', ') || 'Intensity / Value';
   const plotTitle = plotSettings.title || '';
 
-  const isLogY = activePreset === 'log_y' || activePreset === 'log_log';
-  const isLogX = activePreset === 'log_log';
+  const isLogX = Boolean(plotSettings.isLogX);
+  const isLogY = Boolean(plotSettings.isLogY);
 
   return (
     <div
@@ -634,76 +853,161 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
             >
               Open Data File(s)
             </button>
+
+            {/* Quick Demo Samples Links on Empty Screen */}
+            {onLoadSample && (
+              <div className="mt-4 flex items-center gap-2">
+                <span className={`text-[11px] font-medium ${isDark ? 'text-[#6b7280]' : 'text-slate-500'}`}>
+                  Or try sample:
+                </span>
+                <button
+                  onClick={() => onLoadSample('spectra')}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-all ${
+                    isDark
+                      ? 'bg-[#1e2129] border-[#2e323e] text-[#00adb5] hover:bg-[#282c37]'
+                      : 'bg-white border-slate-200 text-[#0284c7] hover:bg-slate-100'
+                  }`}
+                >
+                  UV-Vis Spectra
+                </button>
+                <button
+                  onClick={() => onLoadSample('xrr')}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-all ${
+                    isDark
+                      ? 'bg-[#1e2129] border-[#2e323e] text-[#ff9800] hover:bg-[#282c37]'
+                      : 'bg-white border-slate-200 text-amber-700 hover:bg-slate-100'
+                  }`}
+                >
+                  XRR Reflectivity
+                </button>
+                <button
+                  onClick={() => onLoadSample('csv')}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-all ${
+                    isDark
+                      ? 'bg-[#1e2129] border-[#2e323e] text-[#4caf50] hover:bg-[#282c37]'
+                      : 'bg-white border-slate-200 text-emerald-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Multi-Curve CSV
+                </button>
+                <button
+                  onClick={() => onLoadSample('polar')}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md border transition-all ${
+                    isDark
+                      ? 'bg-[#1e2129] border-[#2e323e] text-[#e91e63] hover:bg-[#282c37]'
+                      : 'bg-white border-slate-200 text-pink-700 hover:bg-slate-100'
+                  }`}
+                >
+                  Polar Figure Eight (r, θ)
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <>
             <Plot
+              key={`${theme}_${activePreset}_${plotSettings.polarThetaUnit || 'degrees'}`}
               data={plotData}
-              layout={{
-                uirevision: uiRevision, // Preserves zoom & pan smoothly
-                autosize: true,
-                dragmode: interactionMode === 'select' ? 'pan' : interactionMode,
-                title: plotTitle
-                  ? { text: plotTitle, font: { color: isDark ? '#ffffff' : '#0f172a', size: 14 } }
-                  : undefined,
-                paper_bgcolor: isDark ? '#121316' : '#f8fafc',
-                plot_bgcolor: isDark ? '#121316' : '#ffffff',
-                margin: { l: 65, r: 35, t: plotTitle ? 50 : 30, b: 55 },
-                showlegend:
-                  plotSettings.showLegend &&
-                  (visibleDatasets.length > 1 ||
-                    visibleDatasets.some((d) => d.selectedY.length > 1)),
-                legend: {
-                  orientation: 'h',
-                  yanchor: 'bottom',
-                  y: 1.02,
-                  xanchor: 'right',
-                  x: 1,
-                  font: { color: isDark ? '#d1d5db' : '#334155', size: 11 },
-                },
-                xaxis: {
-                  title: {
-                    text: primaryXTitle,
-                    font: { color: isDark ? '#d1d5db' : '#0f172a', size: 12 },
+              layout={(() => {
+                const baseLayout: any = {
+                  uirevision: uiRevision,
+                  autosize: true,
+                  title: plotTitle
+                    ? { text: plotTitle, font: { color: isDark ? '#ffffff' : '#0f172a', size: 14 } }
+                    : undefined,
+                  paper_bgcolor: isDark ? '#121316' : '#f8fafc',
+                  plot_bgcolor: isDark ? '#121316' : '#ffffff',
+                  margin: activePreset === 'polar'
+                    ? { l: 40, r: 40, t: plotTitle ? 50 : 35, b: 40 }
+                    : { l: 65, r: 35, t: plotTitle ? 50 : 30, b: 55 },
+                  showlegend:
+                    plotSettings.showLegend &&
+                    (visibleDatasets.length > 1 ||
+                      visibleDatasets.some((d) => d.selectedY.length > 1)),
+                  legend: {
+                    orientation: 'h',
+                    yanchor: 'bottom',
+                    y: 1.02,
+                    xanchor: 'right',
+                    x: 1,
+                    font: { color: isDark ? '#d1d5db' : '#334155', size: 11 },
                   },
-                  type: isLogX ? 'log' : 'linear',
-                  exponentformat: 'power',
-                  showexponent: 'all',
-                  dtick: isLogX ? 1 : undefined,
-                  showgrid: showGrid,
-                  gridcolor: isDark ? '#22252e' : '#e2e8f0',
-                  linecolor: isDark ? '#2e323e' : '#475569',
-                  tickcolor: isDark ? '#2e323e' : '#475569',
-                  tickfont: { color: isDark ? '#8b949e' : '#334155', size: 10 },
-                  zeroline: false,
-                  showspikes: showCrosshair,
-                  spikemode: showCrosshair ? 'across' : undefined,
-                  spikesnap: 'cursor',
-                  spikethickness: 1,
-                  spikecolor: '#888888',
-                },
-                yaxis: {
-                  title: {
-                    text: primaryYTitle,
-                    font: { color: isDark ? '#d1d5db' : '#0f172a', size: 12 },
-                  },
-                  type: isLogY ? 'log' : 'linear',
-                  exponentformat: 'power',
-                  showexponent: 'all',
-                  dtick: isLogY ? 1 : undefined,
-                  showgrid: showGrid,
-                  gridcolor: isDark ? '#22252e' : '#e2e8f0',
-                  linecolor: isDark ? '#2e323e' : '#475569',
-                  tickcolor: isDark ? '#2e323e' : '#475569',
-                  tickfont: { color: isDark ? '#8b949e' : '#334155', size: 10 },
-                  zeroline: false,
-                  showspikes: showCrosshair,
-                  spikemode: showCrosshair ? 'across' : undefined,
-                  spikesnap: 'cursor',
-                  spikethickness: 1,
-                  spikecolor: '#888888',
-                },
-              }}
+                };
+
+                if (activePreset === 'polar') {
+                  baseLayout.polar = {
+                    bgcolor: isDark ? '#14161b' : '#ffffff',
+                    radialaxis: {
+                      visible: true,
+                      showline: true,
+                      showgrid: showGrid,
+                      gridcolor: isDark ? '#262933' : '#e2e8f0',
+                      linecolor: isDark ? '#3a3f4d' : '#94a3b8',
+                      tickfont: { color: isDark ? '#8b949e' : '#475569', size: 10 },
+                      angle: 90,
+                      autorange: true,
+                    },
+                    angularaxis: {
+                      visible: true,
+                      showline: true,
+                      showgrid: showGrid,
+                      gridcolor: isDark ? '#262933' : '#e2e8f0',
+                      linecolor: isDark ? '#3a3f4d' : '#94a3b8',
+                      tickfont: { color: isDark ? '#8b949e' : '#475569', size: 10 },
+                      direction: 'counterclockwise',
+                      rotation: 0,
+                      thetaunit: plotSettings.polarThetaUnit || 'degrees',
+                      period: plotSettings.polarThetaUnit === 'radians' ? 2 * Math.PI : 360,
+                    },
+                  };
+                } else {
+                  baseLayout.dragmode = interactionMode === 'select' ? 'pan' : interactionMode;
+                  baseLayout.xaxis = {
+                    title: {
+                      text: primaryXTitle,
+                      font: { color: isDark ? '#d1d5db' : '#0f172a', size: 12 },
+                    },
+                    type: isLogX ? 'log' : 'linear',
+                    exponentformat: 'power',
+                    showexponent: 'all',
+                    dtick: isLogX ? 1 : undefined,
+                    showgrid: showGrid,
+                    gridcolor: isDark ? '#22252e' : '#e2e8f0',
+                    linecolor: isDark ? '#2e323e' : '#475569',
+                    tickcolor: isDark ? '#2e323e' : '#475569',
+                    tickfont: { color: isDark ? '#8b949e' : '#334155', size: 10 },
+                    zeroline: false,
+                    showspikes: showCrosshair,
+                    spikemode: showCrosshair ? 'across' : undefined,
+                    spikesnap: 'cursor',
+                    spikethickness: 1,
+                    spikecolor: '#888888',
+                  };
+                  baseLayout.yaxis = {
+                    title: {
+                      text: primaryYTitle,
+                      font: { color: isDark ? '#d1d5db' : '#0f172a', size: 12 },
+                    },
+                    type: isLogY ? 'log' : 'linear',
+                    exponentformat: 'power',
+                    showexponent: 'all',
+                    dtick: isLogY ? 1 : undefined,
+                    showgrid: showGrid,
+                    gridcolor: isDark ? '#22252e' : '#e2e8f0',
+                    linecolor: isDark ? '#2e323e' : '#475569',
+                    tickcolor: isDark ? '#2e323e' : '#475569',
+                    tickfont: { color: isDark ? '#8b949e' : '#334155', size: 10 },
+                    zeroline: false,
+                    showspikes: showCrosshair,
+                    spikemode: showCrosshair ? 'across' : undefined,
+                    spikesnap: 'cursor',
+                    spikethickness: 1,
+                    spikecolor: '#888888',
+                  };
+                }
+
+                return baseLayout;
+              })()}
               config={{
                 responsive: true,
                 scrollZoom: true,

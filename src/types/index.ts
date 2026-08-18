@@ -45,6 +45,17 @@ export interface Dataset {
   plotStyle: 'lines' | 'markers' | 'lines+markers' | 'area' | 'bar';
   yOffset: number;
   yMultiplier: number;
+  seriesStyles?: Record<string, SeriesStyle>;
+
+  // Error Bar & Uncertainty settings
+  yErrorColumn?: string | null;
+  xErrorColumn?: string | null;
+  yErrorMap?: Record<string, ErrorSeriesMapping>;
+  errorDisplayStyle?: ErrorDisplayStyle;
+  errorCapSize?: number;
+  errorThickness?: number;
+  errorBandOpacity?: number;
+  errorCustomColor?: string | null;
 
   // Modular pipelines
   loaderId: string;
@@ -57,6 +68,23 @@ export interface Dataset {
   };
 }
 
+export interface SeriesStyle {
+  color?: string;
+  lineDash?: LineDashStyle;
+  lineWidth?: number;
+  markerSymbol?: MarkerSymbol;
+  markerSize?: number;
+  plotStyle?: 'lines' | 'markers' | 'lines+markers' | 'area' | 'bar';
+  opacity?: number;
+}
+
+export type ErrorDisplayStyle = 'bars' | 'band';
+
+export interface ErrorSeriesMapping {
+  yErrCol?: string | null;
+  xErrCol?: string | null;
+}
+
 export interface PlotSettings {
   title: string;
   xAxisTitle: string;
@@ -64,6 +92,9 @@ export interface PlotSettings {
   showLegend: boolean;
   fontSize: number;
   gridColor?: string;
+  isLogX?: boolean;
+  isLogY?: boolean;
+  polarThetaUnit?: 'degrees' | 'radians';
 }
 
 export interface PlotTemplate {
@@ -104,8 +135,7 @@ export type PlotPresetId =
   | 'scatter'
   | 'line_scatter'
   | 'area'
-  | 'log_y'
-  | 'log_log'
+  | 'polar'
   | 'waterfall'
   | 'derivative';
 
@@ -116,6 +146,23 @@ export interface MarkerLine {
   color: string;
   label: string;
   visible: boolean;
+}
+
+export type PanelId = 'datasets' | 'axes' | 'errors' | 'appearance' | 'transforms' | 'metadata';
+export type DockPosition = 'left' | 'right' | 'float' | 'hidden';
+
+export interface PanelConfig {
+  id: PanelId;
+  title: string;
+  dock: DockPosition;
+  isCollapsed: boolean;
+  floatPos?: { x: number; y: number; width?: number; height?: number };
+}
+
+export interface WorkspaceLayout {
+  leftWidth: number;
+  rightWidth: number;
+  panels: Record<PanelId, PanelConfig>;
 }
 
 export interface PeakInfo {

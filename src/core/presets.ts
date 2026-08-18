@@ -39,16 +39,10 @@ export const PLOT_PRESETS: PlotPreset[] = [
     iconName: 'Layers',
   },
   {
-    id: 'log_y',
-    name: 'Log Y (Semi-Log)',
-    description: 'Logarithmic scale on vertical Y-axis (ideal for XRR / decays).',
-    iconName: 'BarChart2',
-  },
-  {
-    id: 'log_log',
-    name: 'Log-Log',
-    description: 'Logarithmic scale on both X and Y axes (power laws).',
-    iconName: 'Maximize2',
+    id: 'polar',
+    name: 'Polar Plot (r, θ)',
+    description: 'Polar coordinates plot with angular (θ) and radial (r) axes.',
+    iconName: 'Compass',
   },
   {
     id: 'waterfall',

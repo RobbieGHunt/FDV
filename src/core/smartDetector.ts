@@ -20,13 +20,18 @@ export function parseRawDataFile(
   content: string,
   fileName: string,
   indexOffset = 0,
-  overrides?: {
-    delimiter?: string;
-    skipRows?: number;
-    hasHeader?: boolean;
-    commentChar?: string;
-  }
+  overrides?:
+    | {
+        delimiter?: string;
+        skipRows?: number;
+        hasHeader?: boolean;
+        commentChar?: string;
+      }
+    | string,
+  filePath?: string
 ): Dataset {
+  const actualFilePath = typeof overrides === 'string' ? overrides : filePath;
+  const actualOverrides = typeof overrides === 'object' ? overrides : undefined;
   const lines = content.split(/\r?\n/).map((l) => l.trimEnd());
   const metadata: Record<string, string> = {};
 
@@ -55,14 +60,14 @@ export function parseRawDataFile(
     }
   }
 
-  if (overrides?.skipRows !== undefined) {
-    headerRowIndex = overrides.skipRows;
+  if (actualOverrides?.skipRows !== undefined) {
+    headerRowIndex = actualOverrides.skipRows;
   }
 
   // 2. Delimiter Sniffing from data rows
   let detectedDelimiter = ',';
-  if (overrides?.delimiter && overrides.delimiter !== 'auto') {
-    detectedDelimiter = overrides.delimiter;
+  if (actualOverrides?.delimiter && actualOverrides.delimiter !== 'auto') {
+    detectedDelimiter = actualOverrides.delimiter;
   } else {
     // Sample non-empty rows after headerRowIndex
     const candidateLines = lines
@@ -178,22 +183,51 @@ export function parseRawDataFile(
     }
   });
 
-  // 7. Auto-guess best X column and Y columns
+  // 7. Auto-guess best X column, Y columns, and Error columns
   const numericCols = columnNames.filter((c) => columnTypes[c] === 'number');
   let selectedX = numericCols[0] || columnNames[0] || '';
   
   // Prefer obvious X-axis names
   const xKeywords = ['x', 'time', 'wavelength', 'twotheta', '2theta', 'theta', 'angle', 'q', 'wavenumber', 'energy', 't', 'freq', 'index'];
-  const matchedX = numericCols.find((col) => xKeywords.some((kw) => col.toLowerCase().includes(kw)));
+  const matchedX = numericCols.find((col) => xKeywords.some((kw) => col.toLowerCase() === kw || col.toLowerCase().startsWith(kw + '_') || col.toLowerCase().includes(kw)));
   if (matchedX) {
     selectedX = matchedX;
   }
 
-  // Y columns: all numeric columns except the selected X
-  let selectedY = numericCols.filter((col) => col !== selectedX);
-  if (selectedY.length === 0 && numericCols.length > 0) {
-    selectedY = [numericCols[0]];
+  // Detect error/uncertainty columns
+  const errKeywords = ['err', 'error', 'std', 'sigma', 'uncertainty', 'sd', '+-', 'delta'];
+  const errorCols = numericCols.filter((col) =>
+    col !== selectedX && errKeywords.some((kw) => col.toLowerCase().includes(kw))
+  );
+
+  // Y columns: numeric columns excluding selected X and auto-detected error columns
+  let candidateY = numericCols.filter((col) => col !== selectedX && !errorCols.includes(col));
+  if (candidateY.length === 0) {
+    candidateY = numericCols.filter((col) => col !== selectedX);
   }
+  let selectedY = candidateY.length > 0 ? candidateY : [numericCols[0] || 'Y'];
+
+  // Map error columns to primary Y curves
+  const yErrorMap: Record<string, { yErrCol?: string | null; xErrCol?: string | null }> = {};
+  let defaultYErrCol: string | null = null;
+  let defaultXErrCol: string | null = null;
+
+  const xErrMatch = errorCols.find((ec) => ec.toLowerCase().includes('x_') || ec.toLowerCase().includes('_x') || ec.toLowerCase() === 'dx');
+  if (xErrMatch) {
+    defaultXErrCol = xErrMatch;
+  }
+
+  selectedY.forEach((yCol) => {
+    const exactMatch = errorCols.find((ec) =>
+      ec.toLowerCase().includes(yCol.toLowerCase()) && ec !== xErrMatch
+    );
+    const genericMatch = errorCols.find((ec) => ec !== xErrMatch);
+    const matchedErr = exactMatch || (errorCols.length === 1 ? genericMatch : null);
+    if (matchedErr) {
+      yErrorMap[yCol] = { yErrCol: matchedErr, xErrCol: defaultXErrCol };
+      if (!defaultYErrCol) defaultYErrCol = matchedErr;
+    }
+  });
 
   const datasetId = `ds_${Date.now()}_${indexOffset}`;
   const color = PALETTE[indexOffset % PALETTE.length];
@@ -202,6 +236,7 @@ export function parseRawDataFile(
     id: datasetId,
     name: fileName.replace(/\.[^/.]+$/, ''),
     fileName,
+    filePath: actualFilePath,
     rawText: content,
     columns: columnNames,
     columnTypes,
@@ -223,6 +258,17 @@ export function parseRawDataFile(
     plotStyle: 'lines',
     yOffset: 0,
     yMultiplier: 1,
+
+    // Error Bar & Uncertainty settings
+    yErrorColumn: defaultYErrCol,
+    xErrorColumn: defaultXErrCol,
+    yErrorMap,
+    errorDisplayStyle: 'bars',
+    errorCapSize: 4,
+    errorThickness: 1.5,
+    errorBandOpacity: 0.20,
+    errorCustomColor: null,
+
     loaderId: 'universal',
     loaderParams: {},
     activeTransforms: [],
@@ -262,6 +308,17 @@ function createEmptyDataset(fileName: string, content: string, indexOffset: numb
     plotStyle: 'lines',
     yOffset: 0,
     yMultiplier: 1,
+
+    // Error Bar & Uncertainty settings
+    yErrorColumn: null,
+    xErrorColumn: null,
+    yErrorMap: {},
+    errorDisplayStyle: 'bars',
+    errorCapSize: 4,
+    errorThickness: 1.5,
+    errorBandOpacity: 0.20,
+    errorCustomColor: null,
+
     loaderId: 'universal',
     loaderParams: {},
     activeTransforms: [],
