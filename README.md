@@ -9,7 +9,7 @@ Flexible Data Viewer (FDV) is an open-source desktop application designed for fa
 
 ---
 
-> **Notice on Version 0.1**: This repository contains version 0.1 (early preview) of the software. It is under active development and has not yet undergone comprehensive multi-platform stability testing. Users may encounter occasional edge cases. Feedback and bug reports are welcome on the [GitHub Issues tracker](https://github.com/RobbieGHunt/FDV/issues).
+> **Notice on Version 0.11**: This repository contains version 0.1 (early preview) of the software. It is under active development and has not yet undergone comprehensive multi-platform stability testing. Users may encounter occasional edge cases. Feedback and bug reports are welcome on the [GitHub Issues tracker](https://github.com/RobbieGHunt/FDV/issues).
 
 ---
 
@@ -81,8 +81,7 @@ For users who want to run the application immediately without installing Node.js
 * **Automated Peak Detection**: Instant detection, labeling, and intensity readout of prominent peaks.
 * **Scientific Log Scale Formatting**: Decade axes formatted in mathematical powers of 10 ($10^{-2}, 10^0, 10^4, 10^7$) rather than SI metric suffixes.
 
-### Infinitely Scrollable Tabular Inspector
-* Continuous infinite scrolling across thousands of data points without pagination breaks.
+### Tabular Datafile Inspector
 * **In-Memory Inline Cell Editing**: Double-click any cell to modify values on the fly with live statistics recalculation.
 * **Row Deletion**: Remove unwanted points or outliers directly from the loaded dataframe.
 * **Data Safety**: All edits and row deletions apply in-memory to the active session; source files on disk remain strictly unmodified.
@@ -143,7 +142,7 @@ Apply baseline corrections, range normalizations, smoothing filters, or derivati
 * **Savitzky-Golay Filter**: Quadratic polynomial smoothing filter preserving peak widths and heights.
 * **First Derivative**: Numerical rate of change ($dY / dX$) for inflection point discovery.
 
-### 3. Publication Plotter Scripts
+### 3. Plotting Scripts
 Export loaded and transformed curves directly into standalone Python scripts for automated high-DPI rendering using Matplotlib, Seaborn, or Plotly.
 
 ---
