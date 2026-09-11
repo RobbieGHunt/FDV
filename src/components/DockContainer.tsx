@@ -161,6 +161,7 @@ export const DockContainer: React.FC<DockContainerProps> = ({
         return (
           <AxesPanel
             activeDataset={activeDataset}
+            datasetIndex={datasets.findIndex((d) => d.id === activeDataset?.id)}
             theme={theme}
             plotSettings={plotSettings}
             activePreset={activePreset}
@@ -168,6 +169,7 @@ export const DockContainer: React.FC<DockContainerProps> = ({
             onUpdatePlotSettings={onUpdatePlotSettings}
           />
         );
+
       case 'errors':
         return (
           <ErrorsPanel

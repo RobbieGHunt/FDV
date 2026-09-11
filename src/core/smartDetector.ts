@@ -1,17 +1,5 @@
-import { Dataset, ColumnStats } from '../types';
-
-const PALETTE = [
-  '#00adb5', // Cyan / Teal
-  '#ff5722', // Orange Red
-  '#2196f3', // Blue
-  '#4caf50', // Green
-  '#e91e63', // Pink
-  '#9c27b0', // Purple
-  '#ff9800', // Amber
-  '#00bcd4', // Cyan
-  '#f44336', // Red
-  '#ffeb3b', // Yellow
-];
+import { Dataset, ColumnStats, LineDashStyle, MarkerSymbol } from '../types';
+import { COLOR_CYCLE } from './colors';
 
 /**
  * Intelligent detector for arbitrary delimited data files.
@@ -35,9 +23,10 @@ export function parseRawDataFile(
   const lines = content.split(/\r?\n/).map((l) => l.trimEnd());
   const metadata: Record<string, string> = {};
 
-  // 1. Identify comment / preamble lines
+  // 1. Identify comment / preamble lines (supporting #, ##, //, ///, !, %, =, ;, *)
   let headerRowIndex = 0;
-  const commentRegex = /^(#|\/\/|!|%|;|\*)/;
+  const commentRegex = /^(?:#+|\/{2,}|!+|%+|=+|;+|\*+)\s*/;
+
 
   for (let i = 0; i < Math.min(lines.length, 50); i++) {
     const line = lines[i].trim();
@@ -230,7 +219,35 @@ export function parseRawDataFile(
   });
 
   const datasetId = `ds_${Date.now()}_${indexOffset}`;
-  const color = PALETTE[indexOffset % PALETTE.length];
+  let color = COLOR_CYCLE[indexOffset % COLOR_CYCLE.length];
+  let lineDash: LineDashStyle = 'solid';
+  let markerSymbol: MarkerSymbol = 'circle';
+  let lineWidth = 2.0;
+
+  // Extract plot style attributes if present in file metadata comments (e.g. # COLOR: #ff0000, ## Line Color: blue)
+  for (const [metaKey, metaVal] of Object.entries(metadata)) {
+    const cleanKey = metaKey.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const cleanVal = metaVal.trim();
+    if (['color', 'linecolor', 'curvecolor'].includes(cleanKey) && cleanVal) {
+      color = cleanVal;
+    } else if (['linedash', 'linestyle', 'dash'].includes(cleanKey)) {
+      if (['solid', 'dash', 'dot', 'dashdot'].includes(cleanVal.toLowerCase())) {
+        lineDash = cleanVal.toLowerCase() as LineDashStyle;
+      }
+    } else if (['marker', 'markersymbol', 'symbol'].includes(cleanKey)) {
+      if (
+        ['circle', 'square', 'diamond', 'cross', 'x', 'triangle-up', 'triangle-down', 'star'].includes(
+          cleanVal.toLowerCase()
+        )
+      ) {
+        markerSymbol = cleanVal.toLowerCase() as MarkerSymbol;
+      }
+    } else if (['linewidth', 'width'].includes(cleanKey)) {
+      const num = parseFloat(cleanVal);
+      if (!isNaN(num) && num > 0) lineWidth = num;
+    }
+  }
+
 
   return {
     id: datasetId,
@@ -249,13 +266,14 @@ export function parseRawDataFile(
     selectedX,
     selectedY,
     color,
-    markerSymbol: 'circle',
+    markerSymbol,
     markerSize: 6,
-    lineDash: 'solid',
+    lineDash,
     isVisible: true,
     opacity: 1.0,
-    lineWidth: 2.0,
+    lineWidth,
     plotStyle: 'lines',
+
     yOffset: 0,
     yMultiplier: 1,
 
@@ -298,7 +316,7 @@ function createEmptyDataset(fileName: string, content: string, indexOffset: numb
     headerRowIndex: 0,
     selectedX: 'X',
     selectedY: ['Y'],
-    color: PALETTE[indexOffset % PALETTE.length],
+    color: COLOR_CYCLE[indexOffset % COLOR_CYCLE.length],
     markerSymbol: 'circle',
     markerSize: 6,
     lineDash: 'solid',

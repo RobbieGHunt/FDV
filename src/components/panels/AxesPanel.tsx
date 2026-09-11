@@ -8,24 +8,12 @@ import {
   ChevronRight,
   Compass,
 } from 'lucide-react';
-
-export const COLOR_CYCLE = [
-  '#00adb5', // Cyan / Teal
-  '#ff5722', // Orange Red
-  '#2196f3', // Blue
-  '#4caf50', // Green
-  '#e91e63', // Pink
-  '#9c27b0', // Purple
-  '#ff9800', // Amber
-  '#00bcd4', // Cyan
-  '#f44336', // Red
-  '#ffeb3b', // Yellow
-  '#8bc34a', // Light Green
-  '#3f51b5', // Indigo
-];
+import { COLOR_CYCLE, resolveCurveColor, toValidColorHex } from '../../core/colors';
+export { COLOR_CYCLE };
 
 interface AxesPanelProps {
   activeDataset: Dataset | null;
+  datasetIndex?: number;
   theme: ThemeMode;
   plotSettings?: PlotSettings;
   activePreset?: string;
@@ -35,12 +23,14 @@ interface AxesPanelProps {
 
 export const AxesPanel: React.FC<AxesPanelProps> = ({
   activeDataset,
+  datasetIndex = 0,
   theme,
   plotSettings,
   activePreset,
   onUpdateDataset,
   onUpdatePlotSettings,
 }) => {
+
   const isDark = theme === 'dark';
   const [expandedCurveStyles, setExpandedCurveStyles] = useState(true);
 
@@ -59,12 +49,22 @@ export const AxesPanel: React.FC<AxesPanelProps> = ({
 
   const updateSeriesStyle = (col: string, updates: Partial<SeriesStyle>) => {
     const existing = activeDataset.seriesStyles?.[col] || {};
-    const updatedStyles = {
+    const updatedColStyle = { ...existing, ...updates };
+    const datasetUpdates: Partial<Dataset> = {};
+
+    if (updates.color && col === activeDataset.selectedY[0]) {
+      datasetUpdates.color = updates.color;
+      delete updatedColStyle.color;
+    }
+
+    datasetUpdates.seriesStyles = {
       ...(activeDataset.seriesStyles || {}),
-      [col]: { ...existing, ...updates },
+      [col]: updatedColStyle,
     };
-    onUpdateDataset(activeDataset.id, { seriesStyles: updatedStyles });
+    onUpdateDataset(activeDataset.id, datasetUpdates);
   };
+
+
 
   return (
     <div className="space-y-3.5">
@@ -202,10 +202,15 @@ export const AxesPanel: React.FC<AxesPanelProps> = ({
             .filter((col) => col !== activeDataset.selectedX)
             .map((col, idx) => {
               const isChecked = activeDataset.selectedY.includes(col);
-              const curveColor =
-                activeDataset.seriesStyles?.[col]?.color ||
-                COLOR_CYCLE[idx % COLOR_CYCLE.length] ||
-                activeDataset.color;
+              const selectedIdx = activeDataset.selectedY.indexOf(col);
+              const curveColor = resolveCurveColor(
+                activeDataset,
+                col,
+                selectedIdx >= 0 ? selectedIdx : idx,
+                datasetIndex
+              );
+
+
 
               return (
                 <label
@@ -314,8 +319,7 @@ export const AxesPanel: React.FC<AxesPanelProps> = ({
             <div className="space-y-2.5 pt-1">
               {activeDataset.selectedY.map((yCol, idx) => {
                 const sStyle = activeDataset.seriesStyles?.[yCol] || {};
-                const curveColor =
-                  sStyle.color || COLOR_CYCLE[idx % COLOR_CYCLE.length] || activeDataset.color;
+                const curveColor = resolveCurveColor(activeDataset, yCol, idx, datasetIndex);
                 const lineDash = sStyle.lineDash || activeDataset.lineDash || 'solid';
                 const lineWidth = sStyle.lineWidth || activeDataset.lineWidth || 2;
 
@@ -331,11 +335,12 @@ export const AxesPanel: React.FC<AxesPanelProps> = ({
                       <div className="flex items-center gap-1.5 truncate flex-1 min-w-0">
                         <input
                           type="color"
-                          value={curveColor.startsWith('#') ? curveColor : '#00adb5'}
+                          value={toValidColorHex(curveColor, '#00adb5')}
                           onChange={(e) => updateSeriesStyle(yCol, { color: e.target.value })}
                           className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent flex-shrink-0"
                           title="Click to choose custom curve color"
                         />
+
                         <span className={`text-xs font-semibold truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
                           {yCol}
                         </span>

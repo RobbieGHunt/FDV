@@ -634,6 +634,7 @@ export const App: React.FC = () => {
         return (
           <AxesPanel
             activeDataset={activeDataset}
+            datasetIndex={datasets.findIndex((d) => d.id === activeDataset?.id)}
             theme={theme}
             plotSettings={plotSettings}
             activePreset={activePreset}
@@ -643,6 +644,7 @@ export const App: React.FC = () => {
             }
           />
         );
+
       case 'errors':
         return (
           <ErrorsPanel

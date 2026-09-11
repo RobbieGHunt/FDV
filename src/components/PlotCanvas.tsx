@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Dataset, PlotPresetId, ThemeMode, PlotSettings } from '../types';
 import { applyTransforms, detectPeaks } from '../core/transforms';
-import { COLOR_CYCLE } from './panels/AxesPanel';
+import { COLOR_CYCLE, resolveCurveColor, hexOrRgbToRgba } from '../core/colors';
 
 interface PlotCanvasProps {
   datasets: Dataset[];
@@ -30,27 +30,6 @@ interface PlotCanvasProps {
   onLoadSample?: (sampleType: 'csv' | 'spectra' | 'xrr' | 'polar') => void;
 }
 
-function hexOrRgbToRgba(color: string, opacity: number): string {
-  if (!color) return `rgba(2, 132, 199, ${opacity})`;
-  if (color.startsWith('#')) {
-    let c = color.substring(1);
-    if (c.length === 3) c = c.split('').map((x) => x + x).join('');
-    if (c.length === 6) {
-      const num = parseInt(c, 16);
-      const r = (num >> 16) & 255;
-      const g = (num >> 8) & 255;
-      const b = num & 255;
-      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
-    }
-  }
-  if (color.startsWith('rgb(')) {
-    return color.replace('rgb(', 'rgba(').replace(')', `, ${opacity})`);
-  }
-  if (color.startsWith('rgba(')) {
-    return color.replace(/,\s*[\d.]+\)$/, `, ${opacity})`);
-  }
-  return color;
-}
 
 export const PlotCanvas: React.FC<PlotCanvasProps> = ({
   datasets,
@@ -142,9 +121,10 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
         // Resolve curve-specific styles and color
         const sStyle = ds.seriesStyles?.[yCol] || {};
-        const curveColor =
-          sStyle.color || COLOR_CYCLE[(dsIdx * 3 + yIdx) % COLOR_CYCLE.length] || ds.color;
+        const curveColor = resolveCurveColor(ds, yCol, yIdx, dsIdx);
         const curveDash = sStyle.lineDash || ds.lineDash || 'solid';
+
+
         const curveWidth = sStyle.lineWidth || ds.lineWidth || 2;
         const curveMarkerSymbol = sStyle.markerSymbol || ds.markerSymbol || 'circle';
         const curveMarkerSize = sStyle.markerSize || ds.markerSize || 6;
@@ -248,8 +228,9 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
               fill: curvePlotStyle === 'area' ? 'toself' : undefined,
               fillcolor:
                 curvePlotStyle === 'area'
-                  ? `${curveColor}25`
+                  ? hexOrRgbToRgba(curveColor, 0.25)
                   : undefined,
+
               opacity: curveOpacity,
               hoverlabel: {
                 bgcolor: isDark ? '#1a1c22' : '#ffffff',
@@ -279,8 +260,9 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
                   : undefined,
               fillcolor:
                 activePreset === 'area' || curvePlotStyle === 'area'
-                  ? `${curveColor}25`
+                  ? hexOrRgbToRgba(curveColor, 0.25)
                   : undefined,
+
               opacity: curveOpacity,
               hoverlabel: {
                 bgcolor: isDark ? '#1a1c22' : '#ffffff',

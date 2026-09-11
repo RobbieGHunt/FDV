@@ -1,5 +1,6 @@
 import React from 'react';
 import { Dataset, ThemeMode } from '../../types';
+import { toValidColorHex } from '../../core/colors';
 
 interface AppearancePanelProps {
   activeDataset: Dataset | null;
@@ -22,6 +23,19 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
     );
   }
 
+  const handleColorChange = (newColor: string) => {
+    const updates: Partial<Dataset> = { color: newColor };
+    if (activeDataset.seriesStyles) {
+      const primaryY = activeDataset.selectedY[0];
+      if (primaryY && activeDataset.seriesStyles[primaryY]?.color) {
+        const nextStyles = { ...activeDataset.seriesStyles };
+        delete nextStyles[primaryY].color;
+        updates.seriesStyles = nextStyles;
+      }
+    }
+    onUpdateDataset(activeDataset.id, updates);
+  };
+
   return (
     <div className="space-y-3">
       {/* Custom Color Input */}
@@ -33,16 +47,17 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
         <div className="flex items-center gap-2">
           <input
             type="color"
-            value={activeDataset.color.startsWith('#') ? activeDataset.color : '#0284c7'}
-            onChange={(e) => onUpdateDataset(activeDataset.id, { color: e.target.value })}
+            value={toValidColorHex(activeDataset.color, '#0284c7')}
+            onChange={(e) => handleColorChange(e.target.value)}
             className="w-8 h-7 rounded border-0 cursor-pointer bg-transparent p-0 flex-shrink-0"
             title="Choose from color palette"
           />
+
           <input
             type="text"
             value={activeDataset.color}
             placeholder="#0284c7 or rgb(2, 132, 199)"
-            onChange={(e) => onUpdateDataset(activeDataset.id, { color: e.target.value })}
+            onChange={(e) => handleColorChange(e.target.value)}
             className={`flex-1 border rounded-lg px-2.5 py-1 font-mono text-xs focus:outline-none ${
               isDark
                 ? 'bg-[#14161b] border-[#2e323e] text-white focus:border-[#00adb5]'
@@ -51,6 +66,7 @@ export const AppearancePanel: React.FC<AppearancePanelProps> = ({
           />
         </div>
       </div>
+
 
       {/* Trace Style & Symbol */}
       <div className="grid grid-cols-2 gap-2">
