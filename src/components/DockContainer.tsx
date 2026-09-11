@@ -84,25 +84,39 @@ export const DockContainer: React.FC<DockContainerProps> = ({
     (pid) => panelConfigs[pid].dock === dock
   );
 
+  const isPanelDrag = (e: React.DragEvent) => {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    return !types.includes('Files') && types.includes('text/plain');
+  };
+
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (!isDragOver) setIsDragOver(true);
+    if (isPanelDrag(e)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!isDragOver) setIsDragOver(true);
+    }
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
     setIsDragOver(false);
   };
 
+
   const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const panelId = e.dataTransfer.getData('text/plain') as PanelId;
-    if (panelId && panelConfigs[panelId]) {
-      onMoveDock(panelId, dock);
+    if (isPanelDrag(e)) {
+      e.preventDefault();
+      setIsDragOver(false);
+      const panelId = e.dataTransfer.getData('text/plain') as PanelId;
+      if (panelId && panelConfigs[panelId]) {
+        onMoveDock(panelId, dock);
+      }
+    } else {
+      setIsDragOver(false);
     }
   };
+
 
   if (dockedPanels.length === 0) {
     return (

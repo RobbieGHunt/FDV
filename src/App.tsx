@@ -39,10 +39,12 @@ declare global {
     electronAPI?: {
       openFiles: () => Promise<Array<{ path: string; name: string; content: string }>>;
       runPythonScript: (payload: any) => Promise<any>;
+      getPathForFile?: (file: File) => string;
       isElectron?: boolean;
     };
   }
 }
+
 
 const DEFAULT_PANEL_CONFIGS: Record<PanelId, PanelConfig> = {
   datasets: { id: 'datasets', title: 'Loaded Datasets', dock: 'left', isCollapsed: false },
@@ -79,7 +81,9 @@ export const App: React.FC = () => {
   });
 
   const [isDragging, setIsDragging] = useState(false);
+  const dragCounterRef = useRef<number>(0);
   const [isExportOpen, setIsExportOpen] = useState(false);
+
 
   // Theme state persisted to LocalStorage
   const [theme, setTheme] = useState<ThemeMode>(() => {
@@ -396,25 +400,136 @@ export const App: React.FC = () => {
     }
   };
 
+  // File loading pipeline for dropped or chosen files
+  const handleFilesDropped = useCallback(
+    async (files: FileList | File[]) => {
+      if (!files || files.length === 0) return;
+
+      const newDatasets: Dataset[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const content = await file.text();
+          let filePath = '';
+          if (window.electronAPI?.getPathForFile) {
+            try {
+              filePath = window.electronAPI.getPathForFile(file) || '';
+            } catch (e) {
+              console.warn('Failed to resolve path using getPathForFile:', e);
+            }
+          }
+          if (!filePath && (file as any).path) {
+            filePath = (file as any).path;
+          }
+
+          const ds = parseRawDataFile(
+            content,
+            file.name,
+            datasets.length + i,
+            undefined,
+            filePath || undefined
+          );
+          newDatasets.push(ds);
+        } catch (err) {
+          console.error('Failed to parse dropped file:', file.name, err);
+        }
+      }
+
+      if (newDatasets.length > 0) {
+        const updated = [...datasets, ...newDatasets];
+        commitDatasets(updated);
+        setActiveDatasetId(newDatasets[0].id);
+      }
+    },
+    [datasets, commitDatasets]
+  );
+
+  const handleFilesDroppedRef = useRef(handleFilesDropped);
+  handleFilesDroppedRef.current = handleFilesDropped;
+
+  // Global window listeners for drag-and-drop file loading (attached once on mount)
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) => {
+      const types = e.dataTransfer?.types;
+      return Boolean(types && Array.from(types).includes('Files'));
+    };
+
+    const handleDragEnter = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      dragCounterRef.current += 1;
+      if (dragCounterRef.current === 1) {
+        setIsDragging(true);
+      }
+    };
+
+    const handleDragOver = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    };
+
+    const handleDragLeave = (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+      if (dragCounterRef.current === 0) {
+        setIsDragging(false);
+      }
+    };
+
+    const handleDrop = async (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        await handleFilesDroppedRef.current(e.dataTransfer.files);
+      }
+    };
+
+    const handleBlur = () => {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Clear stuck drag state if user cancelled drag (e.g. Escape key) without mouse leaving
+      if (e.buttons === 0 && dragCounterRef.current > 0) {
+        dragCounterRef.current = 0;
+        setIsDragging(false);
+      }
+    };
+
+    window.addEventListener('dragenter', handleDragEnter);
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('dragleave', handleDragLeave);
+    window.addEventListener('drop', handleDrop);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      window.removeEventListener('dragenter', handleDragEnter);
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('dragleave', handleDragLeave);
+      window.removeEventListener('drop', handleDrop);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, []);
+
+
   const handleNativeFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const newDatasets: Dataset[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const content = await file.text();
-      const ds = parseRawDataFile(content, file.name, datasets.length + i);
-      newDatasets.push(ds);
-    }
-
-    if (newDatasets.length > 0) {
-      const updated = [...datasets, ...newDatasets];
-      commitDatasets(updated);
-      setActiveDatasetId(newDatasets[0].id);
+    if (e.target.files && e.target.files.length > 0) {
+      await handleFilesDropped(e.target.files);
     }
     e.target.value = '';
   };
+
 
   const handleLoadSample = (sampleType: 'csv' | 'spectra' | 'xrr' | 'polar') => {
     let content = SAMPLE_CSV;
@@ -779,7 +894,8 @@ export const App: React.FC = () => {
       </div>
 
       {/* 4. Drag and Drop Overlay Indicator */}
-      <DropZone isDragging={isDragging} />
+      <DropZone isDragging={isDragging} theme={theme} />
+
 
       {/* 5. Right-Click Context Menu */}
       {contextMenu.isOpen && contextMenu.dataset && (

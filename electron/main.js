@@ -33,9 +33,22 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:3000');
   }
 
+  // Prevent navigation when files are dropped onto the window
+  mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    const isDev = !app.isPackaged && navigationUrl.startsWith('http://localhost:3000');
+    if (!isDev) {
+      event.preventDefault();
+    }
+  });
+
+  // Prevent unwanted popup or external window creation
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
 }
 
 app.whenReady().then(() => {
