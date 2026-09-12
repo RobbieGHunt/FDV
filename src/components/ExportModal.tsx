@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Download, Image, FileText, Globe, Check } from 'lucide-react';
 import { Dataset } from '../types';
 import { resolveCurveColor } from '../core/colors';
+import { escapeCsvField, sanitizeFileName } from '../core/mathUtils';
 
 function escapeHtml(str: string): string {
   return str
@@ -14,15 +15,6 @@ function escapeHtml(str: string): string {
 
 function escapeScriptJson(data: any): string {
   return JSON.stringify(data).replace(/</g, '\\u003c');
-}
-
-function escapeCsvField(val: any): string {
-  if (val === null || val === undefined) return '';
-  const str = String(val);
-  if (/[",\r\n]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
 }
 
 interface ExportModalProps {
@@ -137,7 +129,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const safeDownloadName = (currentDataset.name || 'dataset').replace(/[/\\?%*:|"<>]/g, '_');
+    const safeDownloadName = sanitizeFileName(currentDataset.name);
     link.download = `${safeDownloadName}_export.${fileExt}`;
     document.body.appendChild(link);
     link.click();

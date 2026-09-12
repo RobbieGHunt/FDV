@@ -78,3 +78,22 @@ export function computeColumnStats(arr: (number | string | null | undefined)[]):
     count,
   };
 }
+
+/**
+ * Escapes a cell value for RFC 4180 compliant CSV output.
+ */
+export function escapeCsvField(val: any): string {
+  if (val === null || val === undefined) return '';
+  const str = String(val);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+/**
+ * Sanitizes a dataset name for safe filesystem export without path traversal.
+ */
+export function sanitizeFileName(name: string): string {
+  return (name || 'dataset').replace(/[/\\?%*:|"<>]/g, '_');
+}

@@ -12,8 +12,10 @@ import { PlotCanvas } from './components/PlotCanvas';
 import { DataTable } from './components/DataTable';
 import { ScriptEditor } from './components/ScriptEditor';
 import { ExportModal } from './components/ExportModal';
+import { RenameModal } from './components/RenameModal';
 import { DropZone } from './components/DropZone';
 import { ContextMenu } from './components/ContextMenu';
+import { escapeCsvField, sanitizeFileName } from './core/mathUtils';
 import {
   Dataset,
   DockPosition,
@@ -219,6 +221,38 @@ export const App: React.FC = () => {
     y: 0,
     dataset: null,
   });
+
+  // Rename Dataset Modal State
+  const [renameModal, setRenameModal] = useState<{
+    isOpen: boolean;
+    datasetId: string;
+    currentName: string;
+  }>({
+    isOpen: false,
+    datasetId: '',
+    currentName: '',
+  });
+
+  // Helper for direct CSV export from Context Menu
+  const handleExportDatasetCSV = useCallback((dataset: Dataset) => {
+    const cols = dataset.columns;
+    const header = cols.map(escapeCsvField).join(',');
+    const rows: string[] = [];
+    for (let i = 0; i < dataset.rowCount; i++) {
+      rows.push(cols.map((c) => escapeCsvField(dataset.data[c]?.[i] ?? '')).join(','));
+    }
+    const fileContent = [header, ...rows].join('\n');
+    const blob = new Blob([fileContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const safeName = sanitizeFileName(dataset.name);
+    link.download = `${safeName}_export.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -773,6 +807,7 @@ export const App: React.FC = () => {
             <PlotCanvas
               datasets={datasets}
               activeDatasetId={activeDatasetId}
+              onSelectDataset={setActiveDatasetId}
               selectedPointIndex={selectedPointIndex}
               onSelectPoint={setSelectedPointIndex}
               plotSettings={plotSettings}
@@ -914,17 +949,42 @@ export const App: React.FC = () => {
           onDuplicate={(ds) => {
             handleDuplicateDataset(ds.id);
           }}
-          onRename={() => {}}
+          onRename={() => {
+            if (contextMenu.dataset) {
+              setRenameModal({
+                isOpen: true,
+                datasetId: contextMenu.dataset.id,
+                currentName: contextMenu.dataset.name,
+              });
+            }
+          }}
           onDelete={() => {
             if (contextMenu.dataset) {
               handleRemoveDataset(contextMenu.dataset.id);
             }
           }}
-          onExportCSV={() => {}}
+          onExportCSV={() => {
+            if (contextMenu.dataset) {
+              handleExportDatasetCSV(contextMenu.dataset);
+            }
+          }}
         />
       )}
 
-      {/* 6. Publication Export Modal */}
+      {/* 6. Rename Dataset Modal */}
+      <RenameModal
+        isOpen={renameModal.isOpen}
+        currentName={renameModal.currentName}
+        theme={theme}
+        onClose={() => setRenameModal((prev) => ({ ...prev, isOpen: false }))}
+        onSave={(newName) => {
+          if (renameModal.datasetId) {
+            handleUpdateDataset(renameModal.datasetId, { name: newName });
+          }
+        }}
+      />
+
+      {/* 7. Publication Export Modal */}
       <ExportModal
         isOpen={isExportOpen}
         datasets={datasets}

@@ -41,8 +41,12 @@ export const ErrorsPanel: React.FC<ErrorsPanelProps> = ({
 
         {activeDataset.selectedY.map((yCol) => {
           const currentMapping = activeDataset.yErrorMap?.[yCol] || {};
-          const currentYErr = currentMapping.yErrCol ?? activeDataset.yErrorColumn ?? '';
-          const currentXErr = currentMapping.xErrCol ?? activeDataset.xErrorColumn ?? '';
+          const currentYErr =
+            currentMapping.yErrCol ??
+            (activeDataset.selectedY.length === 1 ? activeDataset.yErrorColumn ?? '' : '');
+          const currentXErr =
+            currentMapping.xErrCol ??
+            (activeDataset.selectedY.length === 1 ? activeDataset.xErrorColumn ?? '' : '');
 
           return (
             <div
@@ -60,11 +64,12 @@ export const ErrorsPanel: React.FC<ErrorsPanelProps> = ({
                     onClick={() => {
                       const nextMap = { ...(activeDataset.yErrorMap || {}) };
                       delete nextMap[yCol];
-                      onUpdateDataset(activeDataset.id, {
-                        yErrorMap: nextMap,
-                        yErrorColumn: null,
-                        xErrorColumn: null,
-                      });
+                      const updates: Partial<Dataset> = { yErrorMap: nextMap };
+                      if (activeDataset.selectedY.length === 1 || yCol === activeDataset.selectedY[0]) {
+                        updates.yErrorColumn = null;
+                        updates.xErrorColumn = null;
+                      }
+                      onUpdateDataset(activeDataset.id, updates);
                     }}
                     className={`text-[10px] font-medium hover:underline ${
                       isDark ? 'text-red-400' : 'text-red-600'
@@ -88,10 +93,11 @@ export const ErrorsPanel: React.FC<ErrorsPanelProps> = ({
                     const val = e.target.value || null;
                     const nextMap = { ...(activeDataset.yErrorMap || {}) };
                     nextMap[yCol] = { ...nextMap[yCol], yErrCol: val };
-                    onUpdateDataset(activeDataset.id, {
-                      yErrorMap: nextMap,
-                      yErrorColumn: val,
-                    });
+                    const updates: Partial<Dataset> = { yErrorMap: nextMap };
+                    if (activeDataset.selectedY.length === 1) {
+                      updates.yErrorColumn = val;
+                    }
+                    onUpdateDataset(activeDataset.id, updates);
                   }}
                   className={`w-full border rounded-md px-2 py-1 text-xs focus:outline-none ${
                     isDark
@@ -121,10 +127,11 @@ export const ErrorsPanel: React.FC<ErrorsPanelProps> = ({
                     const val = e.target.value || null;
                     const nextMap = { ...(activeDataset.yErrorMap || {}) };
                     nextMap[yCol] = { ...nextMap[yCol], xErrCol: val };
-                    onUpdateDataset(activeDataset.id, {
-                      yErrorMap: nextMap,
-                      xErrorColumn: val,
-                    });
+                    const updates: Partial<Dataset> = { yErrorMap: nextMap };
+                    if (activeDataset.selectedY.length === 1) {
+                      updates.xErrorColumn = val;
+                    }
+                    onUpdateDataset(activeDataset.id, updates);
                   }}
                   className={`w-full border rounded-md px-2 py-1 text-xs focus:outline-none ${
                     isDark

@@ -21,6 +21,7 @@ import { COLOR_CYCLE, resolveCurveColor, hexOrRgbToRgba } from '../core/colors';
 interface PlotCanvasProps {
   datasets: Dataset[];
   activeDatasetId: string | null;
+  onSelectDataset?: (id: string) => void;
   selectedPointIndex: number | null;
   onSelectPoint: (index: number | null) => void;
   activePreset: PlotPresetId;
@@ -34,6 +35,7 @@ interface PlotCanvasProps {
 export const PlotCanvas: React.FC<PlotCanvasProps> = ({
   datasets,
   activeDatasetId,
+  onSelectDataset,
   selectedPointIndex,
   onSelectPoint,
   activePreset,
@@ -92,9 +94,19 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
           typeof y === 'number' ? y * ds.yMultiplier + ds.yOffset : y
         );
 
-        // Error series resolution for this specific curve
-        const yErrCol = ds.yErrorMap?.[yCol]?.yErrCol ?? ds.yErrorColumn;
-        const xErrCol = ds.yErrorMap?.[yCol]?.xErrCol ?? ds.xErrorColumn;
+        // Error series resolution for this specific curve (isolated per curve when multiple curves exist)
+        const yErrCol =
+          ds.yErrorMap?.[yCol]?.yErrCol !== undefined
+            ? ds.yErrorMap[yCol]?.yErrCol
+            : ds.selectedY.length === 1
+            ? ds.yErrorColumn
+            : null;
+        const xErrCol =
+          ds.yErrorMap?.[yCol]?.xErrCol !== undefined
+            ? ds.yErrorMap[yCol]?.xErrCol
+            : ds.selectedY.length === 1
+            ? ds.xErrorColumn
+            : null;
 
         let yErrVals: number[] | null = null;
         let xErrVals: number[] | null = null;
@@ -214,6 +226,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
               theta: xVals,
               thetaunit: plotSettings.polarThetaUnit || 'degrees',
               name: `${ds.name} - ${yCol}`,
+              meta: { datasetId: ds.id, isDataTrace: true },
               mode: mode,
               line: {
                 color: curveColor,
@@ -243,6 +256,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
               y: yVals,
               name: `${ds.name} - ${yCol}`,
               type: 'scatter',
+              meta: { datasetId: ds.id, isDataTrace: true },
               mode: mode,
               line: {
                 color: curveColor,
@@ -353,6 +367,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
                 mode: 'markers+text',
                 type: 'scatterpolar',
                 name: 'Data Selection Cursor',
+                meta: { isCursorTrace: true },
                 text: [`Row #${selectedPointIndex + 1}`],
                 textposition: 'top center',
                 textfont: {
@@ -380,6 +395,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
                 mode: 'markers+text',
                 type: 'scatter',
                 name: 'Data Selection Cursor',
+                meta: { isCursorTrace: true },
                 text: [`Row #${selectedPointIndex + 1}`],
                 textposition: 'top center',
                 textfont: {
@@ -888,7 +904,7 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
         ) : (
           <>
             <Plot
-              key={`${theme}_${activePreset}_${plotSettings.polarThetaUnit || 'degrees'}`}
+              key={`${theme}_${activePreset}_${plotSettings.polarThetaUnit || 'degrees'}_${isLogX}_${isLogY}`}
               data={plotData}
               layout={(() => {
                 const baseLayout: any = {
@@ -998,6 +1014,14 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
               onClick={(eventData: any) => {
                 if (interactionMode === 'select' && eventData && eventData.points && eventData.points.length > 0) {
                   const pt = eventData.points[0];
+                  // If the clicked trace is not a dataset trace (e.g. cursor marker, peak annotation), ignore
+                  if (pt.data?.meta?.isCursorTrace || !pt.data?.meta?.isDataTrace) {
+                    return;
+                  }
+                  const clickedDsId = pt.data?.meta?.datasetId;
+                  if (clickedDsId && onSelectDataset && clickedDsId !== activeDatasetId) {
+                    onSelectDataset(clickedDsId);
+                  }
                   const ptIdx = pt.pointIndex ?? pt.pointNumber;
                   if (typeof ptIdx === 'number') {
                     onSelectPoint(ptIdx);
