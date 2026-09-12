@@ -135,9 +135,51 @@ Waterfall Stacked Plotter
 Plots multiple datasets with sequential vertical offsets.
 """
 import plotly.graph_objects as go
+import numpy as np
 
 def plot_plotly(df, params):
     fig = go.Figure()
+    if df.empty or len(df.columns) < 2:
+        return fig
+        
+    x_col = params.get("x_column", df.columns[0])
+    y_cols = [c for c in df.columns if c != x_col]
+    offset_step = float(params.get("offset_step", 0.25))
+    
+    colors = ["#00adb5", "#ea580c", "#22c55e", "#a855f7", "#3b82f6", "#eab308"]
+    
+    for idx, col in enumerate(y_cols):
+        y_vals = df[col].to_numpy(dtype=float)
+        valid_mask = np.isfinite(y_vals)
+        if not np.any(valid_mask):
+            continue
+            
+        y_min = np.nanmin(y_vals[valid_mask])
+        y_max = np.nanmax(y_vals[valid_mask])
+        
+        if y_max > y_min:
+            y_norm = (y_vals - y_min) / (y_max - y_min)
+        else:
+            y_norm = np.zeros_like(y_vals)
+            
+        y_stacked = y_norm + (idx * offset_step)
+        color = colors[idx % len(colors)]
+        
+        fig.add_trace(go.Scatter(
+            x=df[x_col],
+            y=y_stacked,
+            mode="lines",
+            name=f"{col} (+{idx * offset_step:.2f})",
+            line=dict(color=color, width=2)
+        ))
+        
+    fig.update_layout(
+        template="plotly_dark",
+        title="Series Comparison (Waterfall Stack)",
+        xaxis=dict(title=str(x_col), showgrid=True),
+        yaxis=dict(title="Normalized Intensity + Offset", showgrid=True),
+        legend=dict(x=1.02, y=1)
+    )
     return fig
 `,
     isBuiltIn: true,
@@ -246,9 +288,19 @@ import pandas as pd
 import numpy as np
 
 def load_data(file_path, params):
-    wavelength = params.get("wavelength", 1.5406) # Cu K-alpha (Å)
-    df = pd.read_csv(file_path, sep=r"\\s+", header=None)
-    df.columns = ["TwoTheta (deg)", "Intensity"]
+    try:
+        wavelength = float(params.get("wavelength", 1.5406))
+    except (ValueError, TypeError):
+        wavelength = 1.5406
+        
+    if wavelength <= 0:
+        wavelength = 1.5406
+        
+    df_raw = pd.read_csv(file_path, sep=r"\\s+", skiprows=params.get("skip_rows", 0), header=None, comment="#")
+    df = pd.DataFrame()
+    df["TwoTheta (deg)"] = pd.to_numeric(df_raw.iloc[:, 0], errors='coerce')
+    df["Intensity"] = pd.to_numeric(df_raw.iloc[:, 1], errors='coerce')
+    df = df.dropna().reset_index(drop=True)
     
     # Calculate Q = 4*pi/lambda * sin(theta)
     theta_rad = np.radians(df["TwoTheta (deg)"] / 2.0)
@@ -343,20 +395,48 @@ def manipulate(df):
   {
     id: 'transform_savgol',
     name: 'Savitzky-Golay Smoothing',
-    description: 'Applies polynomial local smoothing to suppress high-frequency detector noise while preserving peak height and width.',
+    description: 'Applies polynomial local least-squares convolution to suppress noise while preserving peak height and width.',
     code: `"""
 Savitzky-Golay Smoothing Transform
-Smooths data using rolling average or scipy.signal.savgol_filter.
+Smooths data using polynomial least-squares convolution, preserving peak shape.
 """
 import pandas as pd
 import numpy as np
 
-def manipulate(df):
+try:
+    from scipy.signal import savgol_filter
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
+
+def _savgol_np(y, window, polyorder):
+    m = (window - 1) // 2
+    k = np.arange(-m, m + 1)
+    A = np.vander(k, polyorder + 1)[:, ::-1]
+    coeffs = np.linalg.pinv(A)[0]
+    y_pad = np.pad(y, m, mode='reflect')
+    return np.convolve(y_pad, coeffs[::-1], mode='valid')
+
+def manipulate(df, window_length=7, polyorder=2):
     result = df.copy()
+    w = max(3, int(window_length))
+    if w % 2 == 0:
+        w += 1
+    p = min(max(1, int(polyorder)), w - 1)
+    
     numeric_cols = result.select_dtypes(include=[np.number]).columns
     y_cols = numeric_cols[1:] if len(numeric_cols) > 1 else numeric_cols
     for col in y_cols:
-        result[col] = result[col].rolling(window=5, center=True, min_periods=1).mean()
+        series = result[col]
+        valid_mask = series.notna()
+        valid_idx = series.index[valid_mask]
+        vals = series.loc[valid_idx].to_numpy(dtype=float)
+        if len(vals) >= w:
+            if _HAS_SCIPY:
+                filtered = savgol_filter(vals, window_length=w, polyorder=p, mode='mirror')
+            else:
+                filtered = _savgol_np(vals, w, p)
+            result.loc[valid_idx, col] = filtered
     return result
 `,
     isBuiltIn: true,
@@ -367,17 +447,32 @@ def manipulate(df):
     description: 'Computes numerical gradient dY/dX for identifying transition inflection points and peak centers.',
     code: `"""
 First Derivative Transform
-Calculates central difference gradient dY/dX.
+Calculates central difference gradient dY/dX with monotonic sorting and division protection.
 """
 import pandas as pd
 import numpy as np
 
 def manipulate(df):
     result = df.copy()
-    x_col = result.columns[0]
-    y_cols = result.columns[1:]
-    for col in y_cols:
-        result[f"d({col})/dx"] = np.gradient(result[col], result[x_col])
+    numeric_cols = result.select_dtypes(include=[np.number]).columns.tolist()
+    if len(numeric_cols) < 2 or len(result) < 2:
+        return result
+
+    x_col = numeric_cols[0]
+    sorted_df = result.sort_values(by=x_col)
+    x_vals = sorted_df[x_col].to_numpy(dtype=float)
+    
+    # Guard against zero-spacing duplicates (dx == 0)
+    dx = np.diff(x_vals)
+    if np.any(dx == 0):
+        x_vals = x_vals + np.arange(len(x_vals)) * 1e-12
+
+    for col in numeric_cols[1:]:
+        y_vals = sorted_df[col].to_numpy(dtype=float)
+        valid = np.isfinite(x_vals) & np.isfinite(y_vals)
+        if np.sum(valid) >= 2:
+            grad = np.gradient(y_vals[valid], x_vals[valid])
+            result.loc[sorted_df.index[valid], f"d({col})/d({x_col})"] = grad
     return result
 `,
     isBuiltIn: true,
@@ -390,16 +485,21 @@ def manipulate(df):
 Custom Range Normalization Transform
 Scales data from [min(y), max(y)] to [target_min, target_max].
 """
+import pandas as pd
 import numpy as np
 
 def manipulate(df, target_min=-1.0, target_max=1.0):
     result = df.copy()
-    y_cols = result.columns[1:]
+    numeric_cols = result.select_dtypes(include=[np.number]).columns
+    y_cols = numeric_cols[1:] if len(numeric_cols) > 1 else numeric_cols
     for col in y_cols:
         y_min = result[col].min()
         y_max = result[col].max()
-        if y_max != y_min:
-            result[col] = target_min + (result[col] - y_min) * (target_max - target_min) / (y_max - y_min)
+        if pd.notna(y_min) and pd.notna(y_max):
+            if y_max > y_min:
+                result[col] = target_min + (result[col] - y_min) * (target_max - target_min) / (y_max - y_min)
+            else:
+                result[col] = (target_min + target_max) / 2.0
     return result
 `,
     isBuiltIn: true,
