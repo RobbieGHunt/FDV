@@ -70,6 +70,25 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const [customColor, setCustomColor] = useState(dataset.color);
 
+  const handleColorChange = (newColor: string) => {
+    const primaryY = dataset.selectedY[0];
+    const updatedStyles = primaryY
+      ? {
+          ...(dataset.seriesStyles || {}),
+          [primaryY]: {
+            ...(dataset.seriesStyles?.[primaryY] || {}),
+            color: newColor,
+          },
+        }
+      : dataset.seriesStyles;
+
+    onUpdate({
+      color: newColor,
+      seriesStyles: updatedStyles,
+    });
+    setCustomColor(newColor);
+  };
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -114,10 +133,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           {PALETTE.map((c) => (
             <button
               key={c}
-              onClick={() => {
-                onUpdate({ color: c });
-                setCustomColor(c);
-              }}
+              onClick={() => handleColorChange(c)}
               style={{ backgroundColor: c }}
               className={`w-5 h-5 rounded-md border transition-transform hover:scale-110 ${
                 dataset.color === c ? 'border-white scale-105 shadow' : 'border-transparent'
@@ -130,10 +146,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           <input
             type="color"
             value={dataset.color.startsWith('#') ? dataset.color : '#00adb5'}
-            onChange={(e) => {
-              onUpdate({ color: e.target.value });
-              setCustomColor(e.target.value);
-            }}
+            onChange={(e) => handleColorChange(e.target.value)}
             className="w-6 h-6 rounded border-0 cursor-pointer bg-transparent p-0 flex-shrink-0"
             title="Custom color picker"
           />
@@ -141,10 +154,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             type="text"
             placeholder="#Hex or rgb(...)"
             value={customColor}
-            onChange={(e) => {
-              setCustomColor(e.target.value);
-              onUpdate({ color: e.target.value });
-            }}
+            onChange={(e) => handleColorChange(e.target.value)}
             className="flex-1 bg-[#121316] border border-[#2e323e] rounded px-2 py-0.5 font-mono text-[11px] text-white focus:outline-none focus:border-[#00adb5]"
           />
         </div>

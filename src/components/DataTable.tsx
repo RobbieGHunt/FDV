@@ -10,9 +10,11 @@ import {
   X,
   Target,
   Plus,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { Dataset, ThemeMode, ColumnStats } from '../types';
-import { computeColumnStats } from '../core/mathUtils';
+import { computeColumnStats, escapeCsvField, sanitizeFileName } from '../core/mathUtils';
 
 interface DataTableProps {
   datasets: Dataset[];
@@ -36,6 +38,10 @@ export const DataTable: React.FC<DataTableProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [sortColumn, setSortColumn] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Pagination state for high-volume performance (prevents 100k DOM allocations)
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Inline editing state
   const [editingCell, setEditingCell] = useState<{ rowIdx: number; col: string } | null>(null);
@@ -88,6 +94,33 @@ export const DataTable: React.FC<DataTableProps> = ({
     return res;
   }, [currentDataset, searchTerm, sortColumn, sortDirection]);
 
+  // Total pages and paginated slice for windowed rendering
+  const totalPages = pageSize === Infinity ? 1 : Math.max(1, Math.ceil(filteredRows.length / pageSize));
+
+  // Reset page when dataset or search filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [currentDataset?.id, searchTerm]);
+
+  // Auto-jump to page containing selected point when selected from plot
+  useEffect(() => {
+    if (selectedPointIndex !== null && filteredRows.length > 0 && pageSize !== Infinity) {
+      const targetIdx = filteredRows.findIndex((r) => r._origIdx === selectedPointIndex);
+      if (targetIdx >= 0) {
+        const neededPage = Math.floor(targetIdx / pageSize) + 1;
+        if (neededPage !== currentPage) {
+          setCurrentPage(neededPage);
+        }
+      }
+    }
+  }, [selectedPointIndex, filteredRows, pageSize]);
+
+  const paginatedRows = useMemo(() => {
+    if (pageSize === Infinity) return filteredRows;
+    const start = (currentPage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, currentPage, pageSize]);
+
   // Scroll to selected point row automatically when cursor moves from plot
   useEffect(() => {
     if (selectedPointIndex !== null && tableContainerRef.current) {
@@ -98,7 +131,7 @@ export const DataTable: React.FC<DataTableProps> = ({
         targetRow.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     }
-  }, [selectedPointIndex]);
+  }, [selectedPointIndex, currentPage]);
 
   const handleSort = (col: string) => {
     if (sortColumn === col) {
@@ -187,16 +220,19 @@ export const DataTable: React.FC<DataTableProps> = ({
   const handleExportCSV = () => {
     if (!currentDataset) return;
     const cols = currentDataset.columns;
-    const header = cols.join(',');
-    const rows = filteredRows.map((r) => cols.map((c) => r[c]).join(','));
-    const csvContent = 'data:text/csv;charset=utf-8,' + [header, ...rows].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const header = cols.map(escapeCsvField).join(',');
+    const rows = filteredRows.map((r) => cols.map((c) => escapeCsvField(r[c])).join(','));
+    const fileContent = [header, ...rows].join('\n');
+    const blob = new Blob([fileContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${currentDataset.name}_processed.csv`);
+    link.href = url;
+    const safeName = sanitizeFileName(currentDataset.name);
+    link.download = `${safeName}_processed.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   if (!currentDataset) {
@@ -251,7 +287,7 @@ export const DataTable: React.FC<DataTableProps> = ({
           </div>
         </div>
 
-        {/* Right: Info & Export */}
+        {/* Right: Info, Pagination & Export */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             {selectedPointIndex !== null && (
@@ -270,9 +306,63 @@ export const DataTable: React.FC<DataTableProps> = ({
               </span>
             )}
 
-            <span className={`font-mono text-[11px] ${isDark ? 'text-[#8b949e]' : 'text-slate-600'}`}>
-              {filteredRows.length} rows (Infinitely scrollable)
-            </span>
+            {/* Pagination Controls */}
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-[11px] font-mono ${
+              isDark ? 'bg-[#14161b] border-[#2a2d37] text-[#8b949e]' : 'bg-slate-50 border-[#cbd5e1] text-slate-600'
+            }`}>
+              <span>Rows/Page:</span>
+              <select
+                value={pageSize === Infinity ? 'all' : pageSize}
+                onChange={(e) => {
+                  const val = e.target.value === 'all' ? Infinity : parseInt(e.target.value, 10);
+                  setPageSize(val);
+                  setCurrentPage(1);
+                }}
+                className={`bg-transparent border-0 focus:outline-none cursor-pointer font-semibold ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                }`}
+              >
+                <option value={100} className={isDark ? 'bg-[#181a20]' : 'bg-white'}>100</option>
+                <option value={250} className={isDark ? 'bg-[#181a20]' : 'bg-white'}>250</option>
+                <option value={500} className={isDark ? 'bg-[#181a20]' : 'bg-white'}>500</option>
+                <option value={1000} className={isDark ? 'bg-[#181a20]' : 'bg-white'}>1000</option>
+                <option value="all" className={isDark ? 'bg-[#181a20]' : 'bg-white'}>All</option>
+              </select>
+
+              {pageSize !== Infinity && totalPages > 1 && (
+                <>
+                  <span className="opacity-40">|</span>
+                  <button
+                    disabled={currentPage <= 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="p-0.5 rounded hover:bg-[#2a2d37] disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Previous page"
+                  >
+                    <ChevronLeft className="w-3 h-3" />
+                  </button>
+                  <span className="font-semibold text-[10px]">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="p-0.5 rounded hover:bg-[#2a2d37] disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Next page"
+                  >
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+
+              <span className="opacity-40">|</span>
+              <span>
+                {filteredRows.length === 0
+                  ? '0 rows'
+                  : `${pageSize === Infinity ? 1 : Math.min(filteredRows.length, (currentPage - 1) * pageSize + 1)}–${
+                      pageSize === Infinity ? filteredRows.length : Math.min(filteredRows.length, currentPage * pageSize)
+                    } of ${filteredRows.length}`}
+              </span>
+            </div>
           </div>
 
           <button
@@ -332,7 +422,7 @@ export const DataTable: React.FC<DataTableProps> = ({
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row) => {
+              paginatedRows.map((row) => {
                 const origIdx = row._origIdx;
                 const isSelected = selectedPointIndex === origIdx;
 

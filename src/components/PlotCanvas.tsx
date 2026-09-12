@@ -486,8 +486,10 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
     const yaxis = plotDiv._fullLayout.yaxis;
     if (!xaxis || !yaxis) return { pxX: null, pxY: null, plotRect: null };
 
-    const pxX = xaxis._offset + xaxis.c2p(effectiveVLineX);
-    const pxY = yaxis._offset + yaxis.c2p(effectiveHLineY);
+    const rawPxX = xaxis._offset + xaxis.c2p(effectiveVLineX);
+    const rawPxY = yaxis._offset + yaxis.c2p(effectiveHLineY);
+    const pxX = typeof rawPxX === 'number' && isFinite(rawPxX) ? rawPxX : null;
+    const pxY = typeof rawPxY === 'number' && isFinite(rawPxY) ? rawPxY : null;
     const plotRect = {
       left: xaxis._offset,
       top: yaxis._offset,
@@ -525,7 +527,10 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
       if (isDraggingVLine) {
         const clampedX = Math.max(0, Math.min(xaxis._length, clientX));
-        const newXVal = xaxis.p2c(clampedX);
+        let newXVal = xaxis.p2c(clampedX);
+        if (isLogX && newXVal <= 0) {
+          newXVal = 1e-6;
+        }
         setVLineX(newXVal);
         setLinePixels((prev) => ({
           ...prev,
@@ -540,7 +545,10 @@ export const PlotCanvas: React.FC<PlotCanvasProps> = ({
 
       if (isDraggingHLine) {
         const clampedY = Math.max(0, Math.min(yaxis._length, clientY));
-        const newYVal = yaxis.p2c(clampedY);
+        let newYVal = yaxis.p2c(clampedY);
+        if (isLogY && newYVal <= 0) {
+          newYVal = 1e-6;
+        }
         setHLineY(newYVal);
         setLinePixels((prev) => ({
           ...prev,

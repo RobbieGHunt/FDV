@@ -841,8 +841,24 @@ export const App: React.FC = () => {
                 setPlotSettings((prev) => ({ ...prev, ...updates }))
               }
               onSelectPreset={setActivePreset}
-              onRunScript={(code, type) => {
-                console.log(`Executed ${type} script:`, code);
+              onRunScript={async (code, type) => {
+                if (type === 'plotter') {
+                  setActiveTab('plot');
+                  return;
+                }
+                if (window.electronAPI?.runPythonScript) {
+                  try {
+                    const res = await window.electronAPI.runPythonScript({
+                      scriptPath: '',
+                      stdinData: code,
+                    });
+                    console.log('Python execution result:', res);
+                  } catch (err) {
+                    console.error('Python bridge execution error:', err);
+                  }
+                } else {
+                  console.info('Running in browser mode: Python bridge active in Electron desktop build.');
+                }
               }}
             />
           )}
