@@ -40,15 +40,36 @@ def get_parameters():
 
 def load_data(file_path, params):
     delim = params.get("delimiter", "\t")
-    skip = params.get("skip_rows", 10)
-    x_idx = params.get("x_col_idx", 0)
-    y_idx = params.get("y_col_idx", 1)
+    try:
+        skip = int(params.get("skip_rows", 10))
+    except (ValueError, TypeError):
+        skip = 10
+    try:
+        x_idx = int(params.get("x_col_idx", 0))
+    except (ValueError, TypeError):
+        x_idx = 0
+    try:
+        y_idx = int(params.get("y_col_idx", 1))
+    except (ValueError, TypeError):
+        y_idx = 1
 
     df_raw = pd.read_csv(file_path, sep=delim if delim != " " else r"\s+", skiprows=skip, header=None, comment="#", engine='python')
     df_raw = df_raw.dropna(how='all')
     
+    if df_raw.empty:
+        raise ValueError(f"File contains no tabular data after skipping {skip} header lines.")
+
+    if df_raw.shape[1] <= max(x_idx, y_idx):
+        raise ValueError(
+            f"File has only {df_raw.shape[1]} column(s). Selected column indices ({x_idx}, {y_idx}) are out of range."
+        )
+
     df = pd.DataFrame()
     df["Wavelength (nm)"] = pd.to_numeric(df_raw.iloc[:, x_idx], errors='coerce')
     df["Intensity"] = pd.to_numeric(df_raw.iloc[:, y_idx], errors='coerce')
     df = df.dropna().reset_index(drop=True)
+
+    if df.empty:
+        raise ValueError("No valid numeric data found in the selected wavelength and intensity columns.")
+
     return df
