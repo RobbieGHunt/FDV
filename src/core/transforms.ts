@@ -1,4 +1,5 @@
 import { PeakInfo } from '../types';
+import { getArrayMin, getArrayMax, getArrayMinMax } from './mathUtils';
 
 export interface TransformDefinition {
   id: string;
@@ -80,13 +81,12 @@ export function applyTransforms(
 
   for (const tId of activeTransformIds) {
     if (tId === 'baseline_min') {
-      const min = Math.min(...curY);
+      const min = getArrayMin(curY);
       curY = curY.map((v) => v - min);
     } else if (tId === 'normalize_custom' || tId === 'normalize_01') {
       const targetMin = transformParams?.normalize?.min ?? 0;
       const targetMax = transformParams?.normalize?.max ?? 1;
-      const curMin = Math.min(...curY);
-      const curMax = Math.max(...curY);
+      const { min: curMin, max: curMax } = getArrayMinMax(curY);
       const curRange = curMax - curMin;
       const targetRange = targetMax - targetMin;
       
@@ -96,7 +96,7 @@ export function applyTransforms(
         curY = curY.map(() => targetMin);
       }
     } else if (tId === 'normalize_max') {
-      const max = Math.max(...curY);
+      const max = getArrayMax(curY);
       curY = max !== 0 ? curY.map((v) => v / max) : curY;
     } else if (tId === 'smooth_moving_avg') {
       const window = transformParams?.smooth?.window ?? 5;
@@ -165,8 +165,7 @@ export function detectPeaks(
   const peaks: PeakInfo[] = [];
   if (yVals.length < 3) return peaks;
 
-  const yMin = Math.min(...yVals);
-  const yMax = Math.max(...yVals);
+  const { min: yMin, max: yMax } = getArrayMinMax(yVals);
   const totalRange = yMax - yMin;
   const absThreshold = yMin + totalRange * prominence;
 

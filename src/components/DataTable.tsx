@@ -12,6 +12,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { Dataset, ThemeMode, ColumnStats } from '../types';
+import { computeColumnStats } from '../core/mathUtils';
 
 interface DataTableProps {
   datasets: Dataset[];
@@ -128,16 +129,10 @@ export const DataTable: React.FC<DataTableProps> = ({
     colData[rowIdx] = finalVal;
 
     // Recalculate stats for the edited column
-    const numbers = colData.filter((v): v is number => typeof v === 'number' && !isNaN(v));
-    const newStats: Record<string, ColumnStats> = { ...currentDataset.stats };
-    if (numbers.length > 0) {
-      newStats[col] = {
-        min: Math.min(...numbers),
-        max: Math.max(...numbers),
-        mean: numbers.reduce((a, b) => a + b, 0) / numbers.length,
-        count: numbers.length,
-      };
-    }
+    const newStats: Record<string, ColumnStats> = {
+      ...currentDataset.stats,
+      [col]: computeColumnStats(colData),
+    };
 
     const newData = {
       ...currentDataset.data,
@@ -170,16 +165,7 @@ export const DataTable: React.FC<DataTableProps> = ({
       const arr = [...(currentDataset.data[col] || [])];
       arr.splice(origIdx, 1);
       newData[col] = arr;
-
-      const numbers = arr.filter((v): v is number => typeof v === 'number' && !isNaN(v));
-      if (numbers.length > 0) {
-        newStats[col] = {
-          min: Math.min(...numbers),
-          max: Math.max(...numbers),
-          mean: numbers.reduce((a, b) => a + b, 0) / numbers.length,
-          count: numbers.length,
-        };
-      }
+      newStats[col] = computeColumnStats(arr);
     });
 
     const newRowCount = currentDataset.rowCount - 1;

@@ -1,5 +1,6 @@
 import { Dataset, ColumnStats, LineDashStyle, MarkerSymbol } from '../types';
 import { COLOR_CYCLE } from './colors';
+import { computeColumnStats } from './mathUtils';
 
 /**
  * Intelligent detector for arbitrary delimited data files.
@@ -158,15 +159,7 @@ export function parseRawDataFile(
     columnTypes[col] = isNumeric ? 'number' : 'string';
 
     if (isNumeric) {
-      const nums = data[col].filter((v): v is number => typeof v === 'number');
-      if (nums.length > 0) {
-        const min = Math.min(...nums);
-        const max = Math.max(...nums);
-        const mean = nums.reduce((a, b) => a + b, 0) / nums.length;
-        stats[col] = { min, max, mean, count: nums.length };
-      } else {
-        stats[col] = { min: null, max: null, mean: null, count: 0 };
-      }
+      stats[col] = computeColumnStats(data[col]);
     } else {
       stats[col] = { min: null, max: null, mean: null, count: data[col].length };
     }
