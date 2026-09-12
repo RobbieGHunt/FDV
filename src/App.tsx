@@ -15,7 +15,7 @@ import { ExportModal } from './components/ExportModal';
 import { RenameModal } from './components/RenameModal';
 import { DropZone } from './components/DropZone';
 import { ContextMenu } from './components/ContextMenu';
-import { escapeCsvField, sanitizeFileName } from './core/mathUtils';
+import { computeColumnStats, escapeCsvField, sanitizeFileName } from './core/mathUtils';
 import {
   Dataset,
   DockPosition,
@@ -846,15 +846,58 @@ export const App: React.FC = () => {
                   setActiveTab('plot');
                   return;
                 }
+                if (!activeDataset) {
+                  console.warn('No active dataset selected for transformation.');
+                  return;
+                }
                 if (window.electronAPI?.runPythonScript) {
                   try {
-                    const res = await window.electronAPI.runPythonScript({
-                      scriptPath: '',
-                      stdinData: code,
+                    const stdinPayload = JSON.stringify({
+                      data: activeDataset.data,
+                      columns: activeDataset.columns,
+                      rowCount: activeDataset.rowCount,
                     });
-                    console.log('Python execution result:', res);
-                  } catch (err) {
+                    const res = await window.electronAPI.runPythonScript({
+                      action: 'transform',
+                      scriptCode: code,
+                      stdinData: stdinPayload,
+                    });
+
+                    if (res.success && res.data) {
+                      const pyData = res.data;
+                      const newCols = pyData.columns || Object.keys(pyData.data || {});
+                      const newRowCount = pyData.rowCount || (newCols.length > 0 ? (pyData.data[newCols[0]]?.length || 0) : 0);
+
+                      const newStats: Record<string, any> = pyData.stats || {};
+                      if (!pyData.stats) {
+                        for (const col of newCols) {
+                          newStats[col] = computeColumnStats(pyData.data[col] || []);
+                        }
+                      }
+
+                      const updatedDatasets = datasets.map((ds) => {
+                        if (ds.id === activeDataset.id) {
+                          return {
+                            ...ds,
+                            columns: newCols,
+                            columnTypes: pyData.columnTypes || ds.columnTypes,
+                            rowCount: newRowCount,
+                            data: pyData.data,
+                            stats: newStats,
+                          };
+                        }
+                        return ds;
+                      });
+
+                      commitDatasets(updatedDatasets);
+                      setActiveTab('plot');
+                    } else {
+                      console.error('Python transform error:', res.error);
+                      alert(`Python Script Error:\n${res.error || 'Unknown execution error'}`);
+                    }
+                  } catch (err: any) {
                     console.error('Python bridge execution error:', err);
+                    alert(`Python Bridge Error:\n${err?.message || err}`);
                   }
                 } else {
                   console.info('Running in browser mode: Python bridge active in Electron desktop build.');
