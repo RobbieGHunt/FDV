@@ -82,7 +82,7 @@ ipcMain.handle('dialog:openFiles', async () => {
   const filesData = [];
   for (const filePath of result.filePaths) {
     try {
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fs.promises.readFile(filePath, 'utf-8');
       const name = path.basename(filePath);
       filesData.push({ path: filePath, name, content });
     } catch (err) {
@@ -92,18 +92,70 @@ ipcMain.handle('dialog:openFiles', async () => {
   return filesData;
 });
 
-// IPC handler for executing Python bridge script
-ipcMain.handle('python:runScript', async (event, { scriptPath, args, stdinData }) => {
-  return new Promise((resolve, reject) => {
-    const pythonExe = process.env.PYTHON_PATH || 'python';
-    const pyProcess = spawn(pythonExe, [scriptPath, ...(args || [])]);
+function getPythonExecutable() {
+  if (process.env.PYTHON_PATH && fs.existsSync(process.env.PYTHON_PATH)) {
+    return process.env.PYTHON_PATH;
+  }
+  const condaWin = 'C:\\Users\\robhu413\\AppData\\Local\\anaconda3\\python.exe';
+  if (process.platform === 'win32' && fs.existsSync(condaWin)) {
+    return condaWin;
+  }
+  return 'python';
+}
 
+// IPC handler for executing Python bridge script or custom script code
+ipcMain.handle('python:runScript', async (event, { scriptPath, args, stdinData, action, scriptCode, params }) => {
+  return new Promise((resolve) => {
+    const pythonExe = getPythonExecutable();
+    const bridgePath = path.join(__dirname, '../core/bridge.py');
+
+    let execArgs = [];
+    let tempScriptPath = null;
+
+    if (action) {
+      // Bridge invocation mode
+      execArgs = [bridgePath, '--action', action];
+
+      if (scriptCode) {
+        tempScriptPath = path.join(
+          app.getPath('temp'),
+          `fdv_script_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.py`
+        );
+        fs.writeFileSync(tempScriptPath, scriptCode, 'utf-8');
+        execArgs.push('--script', tempScriptPath);
+      } else if (scriptPath) {
+        execArgs.push('--script', scriptPath);
+      }
+
+      if (params) {
+        execArgs.push('--params', typeof params === 'string' ? params : JSON.stringify(params));
+      }
+      if (args && Array.isArray(args)) {
+        execArgs.push(...args);
+      }
+    } else {
+      // Direct script invocation mode
+      execArgs = [scriptPath || bridgePath, ...(args || [])];
+    }
+
+    const pyProcess = spawn(pythonExe, execArgs);
     let stdoutData = '';
     let stderrData = '';
+    let hasTimedOut = false;
+
+    const timeoutTimer = setTimeout(() => {
+      hasTimedOut = true;
+      try { pyProcess.kill(); } catch (_) {}
+      resolve({ success: false, error: 'Python execution timed out after 30 seconds.' });
+    }, 30000);
 
     if (stdinData) {
-      pyProcess.stdin.write(stdinData);
-      pyProcess.stdin.end();
+      try {
+        pyProcess.stdin.write(stdinData);
+        pyProcess.stdin.end();
+      } catch (err) {
+        console.error('Failed writing to python stdin:', err);
+      }
     }
 
     pyProcess.stdout.on('data', (data) => {
@@ -115,6 +167,12 @@ ipcMain.handle('python:runScript', async (event, { scriptPath, args, stdinData }
     });
 
     pyProcess.on('close', (code) => {
+      clearTimeout(timeoutTimer);
+      if (tempScriptPath && fs.existsSync(tempScriptPath)) {
+        try { fs.unlinkSync(tempScriptPath); } catch (_) {}
+      }
+      if (hasTimedOut) return;
+
       if (code === 0) {
         try {
           const parsed = JSON.parse(stdoutData);
@@ -123,11 +181,20 @@ ipcMain.handle('python:runScript', async (event, { scriptPath, args, stdinData }
           resolve({ success: true, raw: stdoutData });
         }
       } else {
-        resolve({ success: false, error: stderrData || `Exited with code ${code}` });
+        let errMsg = stderrData || `Exited with code ${code}`;
+        try {
+          const errJson = JSON.parse(stderrData);
+          if (errJson.error) errMsg = errJson.error;
+        } catch (_) {}
+        resolve({ success: false, error: errMsg });
       }
     });
 
     pyProcess.on('error', (err) => {
+      clearTimeout(timeoutTimer);
+      if (tempScriptPath && fs.existsSync(tempScriptPath)) {
+        try { fs.unlinkSync(tempScriptPath); } catch (_) {}
+      }
       resolve({ success: false, error: err.message });
     });
   });
