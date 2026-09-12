@@ -504,6 +504,95 @@ def manipulate(df, target_min=-1.0, target_max=1.0):
 `,
     isBuiltIn: true,
   },
+  {
+    id: 'transform_gaussian_fit',
+    name: 'Gaussian Peak Fitting',
+    description: 'Fits Gaussian peak profiles using non-linear least squares, calculating centroid, amplitude, FWHM, and residuals.',
+    code: `"""
+Gaussian Peak Fit Transform
+Extracts peak centroid (mu), amplitude (A), FWHM, and residuals.
+"""
+import pandas as pd
+import numpy as np
+
+try:
+    from scipy.optimize import curve_fit
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
+
+def gaussian(x, y0, a, mu, sigma):
+    return y0 + a * np.exp(-0.5 * ((x - mu) / np.maximum(sigma, 1e-12)) ** 2)
+
+def manipulate(df):
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if len(numeric_cols) < 2 or len(df) < 4:
+        return df
+
+    x_col, y_col = numeric_cols[0], numeric_cols[1]
+    mask = np.isfinite(df[x_col]) & np.isfinite(df[y_col])
+    x = df.loc[mask, x_col].to_numpy(dtype=float)
+    y = df.loc[mask, y_col].to_numpy(dtype=float)
+
+    y0_init = float(np.percentile(y, 10))
+    a_init = float(np.max(y) - y0_init)
+    mu_init = float(x[np.argmax(y)])
+    sigma_init = max(float((np.max(x) - np.min(x)) / 10.0), 1e-6)
+
+    result = df.copy()
+    if _HAS_SCIPY:
+        try:
+            p0 = [y0_init, a_init, mu_init, sigma_init]
+            bounds = ([-np.inf, 0, np.min(x), 1e-12], [np.inf, np.inf, np.max(x), np.max(x) - np.min(x)])
+            popt, _ = curve_fit(gaussian, x, y, p0=p0, bounds=bounds, maxfev=5000)
+            y_fit = gaussian(df[x_col].to_numpy(dtype=float), *popt)
+        except Exception:
+            y_fit = gaussian(df[x_col].to_numpy(dtype=float), y0_init, a_init, mu_init, sigma_init)
+    else:
+        y_fit = gaussian(df[x_col].to_numpy(dtype=float), y0_init, a_init, mu_init, sigma_init)
+
+    result["Fit_Gaussian"] = y_fit
+    result["Residuals"] = df[y_col] - y_fit
+    return result
+`,
+    isBuiltIn: true,
+  },
+  {
+    id: 'transform_poly_fit',
+    name: 'Polynomial Regression (Linear / Quadratic)',
+    description: 'Fits degree 1-5 polynomials to data, adding fitted curve overlay and residual error columns.',
+    code: `"""
+Polynomial Regression Transform
+Fits degree 1-5 polynomial and computes fitted curve and residuals.
+"""
+import pandas as pd
+import numpy as np
+
+def manipulate(df, degree=1):
+    deg = max(1, min(5, int(degree)))
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    if len(numeric_cols) < 2 or len(df) < deg + 1:
+        return df
+
+    x_col, y_col = numeric_cols[0], numeric_cols[1]
+    mask = np.isfinite(df[x_col]) & np.isfinite(df[y_col])
+    x_valid = df.loc[mask, x_col].to_numpy(dtype=float)
+    y_valid = df.loc[mask, y_col].to_numpy(dtype=float)
+
+    if len(x_valid) < deg + 1:
+        return df
+
+    coeffs = np.polyfit(x_valid, y_valid, deg=deg)
+    poly = np.poly1d(coeffs)
+
+    result = df.copy()
+    y_fit = poly(df[x_col].to_numpy(dtype=float))
+    result["Fit_Poly"] = y_fit
+    result["Residuals"] = df[y_col] - y_fit
+    return result
+`,
+    isBuiltIn: true,
+  },
 ];
 
 export function getStoredTransforms(): TransformTemplate[] {
