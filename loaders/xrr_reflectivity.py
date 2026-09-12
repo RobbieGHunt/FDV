@@ -27,14 +27,32 @@ def get_parameters():
     }
 
 def load_data(file_path, params):
-    wavelength = params.get("wavelength", 1.5406)
-    skip = params.get("skip_rows", 0)
+    try:
+        wavelength = float(params.get("wavelength", 1.5406))
+    except (ValueError, TypeError):
+        wavelength = 1.5406
+
+    if wavelength <= 0:
+        raise ValueError(f"X-ray wavelength must be strictly positive (> 0 Å), got {wavelength}")
+
+    try:
+        skip = int(params.get("skip_rows", 0))
+    except (ValueError, TypeError):
+        skip = 0
 
     df_raw = pd.read_csv(file_path, sep=r"\s+", skiprows=skip, header=None, comment="#", engine='python')
+    df_raw = df_raw.dropna(how='all')
+    if df_raw.empty:
+        raise ValueError(f"File contains no tabular data after skipping {skip} header lines.")
+    if df_raw.shape[1] < 2:
+        raise ValueError(f"XRR profile requires at least 2 columns (TwoTheta, Intensity), but file only has {df_raw.shape[1]}.")
+
     df = pd.DataFrame()
     df["TwoTheta (deg)"] = pd.to_numeric(df_raw.iloc[:, 0], errors='coerce')
     df["Intensity"] = pd.to_numeric(df_raw.iloc[:, 1], errors='coerce')
     df = df.dropna().reset_index(drop=True)
+    if df.empty:
+        raise ValueError("No valid numeric TwoTheta and Intensity data found.")
 
     # Q = (4 * pi / lambda) * sin(theta)
     theta_rad = np.radians(df["TwoTheta (deg)"] / 2.0)
